@@ -3,8 +3,8 @@ package stats
 import "github.com/docker/docker/api/types"
 
 type Disk struct {
-	Read  float64
-	Write float64
+	Read  float64 `json:"read"`
+	Write float64 `json:"write"`
 }
 
 func NewDisk(disk types.BlkioStats) *Disk {

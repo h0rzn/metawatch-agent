@@ -3,9 +3,9 @@ package stats
 import "github.com/docker/docker/api/types"
 
 type Memory struct {
-	UsagePerc float64
-	Usage     float64
-	Available float64
+	UsagePerc float64 `json:"perc"`
+	Usage     float64 `json:"usage_bytes"`
+	Available float64 `json:"available_bytes"`
 }
 
 func NewMem(mem types.MemoryStats) *Memory {

@@ -3,9 +3,8 @@ package stats
 import "github.com/docker/docker/api/types"
 
 type Net struct {
-	In  float64
-	Out float64
-	// add support for amount of used networks and their respective usage
+	In  float64 `json:"in"`
+	Out float64 `json:"out"`
 }
 
 func NewNet(net map[string]types.NetworkStats) *Net {
