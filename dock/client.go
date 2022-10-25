@@ -40,29 +40,14 @@ func (ctrl *Controller) RawContainers() ([]types.Container, error) {
 	return containers, nil
 }
 
-func (ctrl *Controller) Collect(engineCont types.Container) (*Container, error) {
-	var cont Container
-	cont.Names = engineCont.Names
-	cont.Image = engineCont.Image
-	cont.ID = engineCont.ID
-
-	// get container state over types.ContainerJson.ContainerJSONBase
-	ctx := context.Background()
-	json, err := ctrl.c.ContainerInspect(ctx, engineCont.ID)
+func (ctrl *Controller) Collect(engineCont types.Container) error {
+	container, err := NewContainer(engineCont, ctrl.c)
 	if err != nil {
-		return &Container{}, err
+		return err
 	}
-	jsonBase := json.ContainerJSONBase
-	status := jsonBase.State.Status
-	statusStarted := jsonBase.State.StartedAt
 
-	state := ContainerState{
-		Status:  status,
-		Started: statusStarted,
-	}
-	cont.State = state
-
-	return &cont, nil
+	ctrl.AddContainer(container)
+	return nil
 }
 
 func (ctrl *Controller) AddContainer(cont *Container) {
@@ -76,18 +61,4 @@ func (ctrl *Controller) AddContainer(cont *Container) {
 	}
 
 	ctrl.Containers = append(ctrl.Containers, cont)
-	fmt.Println(len(ctrl.Containers), cont.Names, cont.State.Status, cont.State.Started)
-}
-
-func (ctrl *Controller) CPU(id string) {
-	ctx := context.Background()
-	contStats, err := ctrl.c.ContainerStats(ctx, id, true)
-	if err != nil {
-		panic(err)
-	}
-	defer contStats.Body.Close()
-
-	whoami := ctrl.Containers[0]
-	whoami.ReadStats(contStats.Body)
-
 }

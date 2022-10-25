@@ -1,21 +1,20 @@
 package dock
 
 import (
+	"context"
 	"encoding/json"
-	"fmt"
-	"io"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/client"
 	"github.com/h0rzn/monitoring_agent/dock/stats"
 )
 
 type Container struct {
-	ID          string
-	Names       []string
-	Image       string
-	State       ContainerState
-	StatsReader io.Reader        // passed down from controller to access stats stream
-	StatsWriter chan interface{} // send processed stats data back
+	ID    string
+	Names []string
+	Image string
+	State ContainerState
+	c     *client.Client
 }
 
 type ContainerState struct {
@@ -23,26 +22,55 @@ type ContainerState struct {
 	Started string
 }
 
-func (c *Container) ReadStats(r io.Reader) {
-	dec := json.NewDecoder(r)
+func NewContainer(engineC types.Container, c *client.Client) (*Container, error) {
+	var container Container
+	container.Names = engineC.Names
+	container.Image = engineC.Image
+	container.ID = engineC.ID
 
-	for {
-		var statsJson *types.StatsJSON
-
-		err := dec.Decode(&statsJson)
-		if err != nil {
-			if err == io.EOF {
-				break
-			} else {
-				panic(err)
-			}
-		}
-
-		//cpu := stats.NewCPU(statsJson.PreCPUStats, statsJson.CPUStats)
-		//mem := stats.NewMem(statsJson.MemoryStats)
-		//fmt.Printf("MEM: %f (%f/%f) CPU: %f\n", mem.UsagePerc, mem.Usage, mem.Available, cpu.UsagePerc)
-		net := stats.NewNet(statsJson.Networks)
-		fmt.Println(net.In, net.Out)
-
+	// fetch container state
+	ctx := context.Background()
+	json, err := c.ContainerInspect(ctx, engineC.ID)
+	if err != nil {
+		return &Container{}, err
 	}
+	jsonBase := json.ContainerJSONBase
+	status := jsonBase.State.Status
+	statusStarted := jsonBase.State.StartedAt
+
+	state := ContainerState{
+		Status:  status,
+		Started: statusStarted,
+	}
+	container.State = state
+
+	// reference received docker client reference
+	container.c = c
+
+	return &container, nil
+}
+
+func (c *Container) StatsSnap() stats.Set {
+	ctx := context.Background()
+	contStats, err := c.c.ContainerStats(ctx, c.ID, false)
+	if err != nil {
+		panic(err)
+	}
+	defer contStats.Body.Close()
+
+	return stats.NewSet(contStats.Body)
+}
+
+func (c *Container) StatsStream() <-chan stats.Set {
+	ctx := context.Background()
+	contStats, err := c.c.ContainerStats(ctx, c.ID, true)
+	if err != nil {
+		panic(err)
+	}
+	defer contStats.Body.Close()
+
+	dec := json.NewDecoder(contStats.Body)
+	prod := stats.ProduceStats(dec)
+	out := stats.GetFromStream(prod)
+	return out
 }
