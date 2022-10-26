@@ -27,7 +27,38 @@ func (ctrl *Controller) CloseClient() {
 	ctrl.c.Close()
 }
 
-func (ctrl *Controller) RawContainers() ([]types.Container, error) {
+func (ctrl *Controller) Init() {
+	errChan := ctrl.ContainersCollect()
+
+	for containerErr := range errChan {
+		fmt.Println(containerErr.Error())
+	}
+}
+
+func (ctrl *Controller) ContainersCollect() chan error {
+	outErr := make(chan error)
+
+	raw, err := ctrl.rawContainers()
+	if err != nil {
+		outErr <- err
+		close(outErr)
+		return outErr
+	}
+
+	go func() {
+		for _, containerRaw := range raw {
+			err := ctrl.registerContainer(containerRaw)
+			if err != nil {
+				outErr <- err
+			}
+		}
+		close(outErr)
+
+	}()
+	return outErr
+}
+
+func (ctrl *Controller) rawContainers() ([]types.Container, error) {
 	ctx := context.Background()
 	containers, err := ctrl.c.ContainerList(
 		ctx,
@@ -40,25 +71,21 @@ func (ctrl *Controller) RawContainers() ([]types.Container, error) {
 	return containers, nil
 }
 
-func (ctrl *Controller) Collect(engineCont types.Container) error {
-	container, err := NewContainer(engineCont, ctrl.c)
+func (ctrl *Controller) registerContainer(raw types.Container) error {
+	cont, err := NewContainer(raw, ctrl.c)
 	if err != nil {
 		return err
 	}
 
-	ctrl.AddContainer(container)
-	return nil
-}
-
-func (ctrl *Controller) AddContainer(cont *Container) {
 	// check if container exists
 	for _, c := range ctrl.Containers {
 		if c.ID == cont.ID {
 			// handle case
-			fmt.Printf("error adding container %s, already exists\n", cont.Names)
-			return
+			fmt.Printf("ignoring attempt to add container %s [%s], already exists\n", cont.Names, cont.ID)
+			return nil
 		}
 	}
 
 	ctrl.Containers = append(ctrl.Containers, cont)
+	return nil
 }
