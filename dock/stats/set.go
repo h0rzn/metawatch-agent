@@ -38,26 +38,3 @@ func NewSetWithJSON(stats types.StatsJSON) Set {
 		Net:  *net,
 	}
 }
-
-func ProduceStats(dec *json.Decoder) <-chan types.StatsJSON {
-	out := make(chan types.StatsJSON)
-	go func() {
-		for {
-			var stat types.StatsJSON
-			_ = dec.Decode(&stat)
-			out <- stat
-		}
-	}()
-	return out
-}
-
-func GetFromStream(in <-chan types.StatsJSON) <-chan Set {
-	out := make(chan Set)
-	go func() {
-		for stat := range in {
-			set := NewSetWithJSON(stat)
-			out <- set
-		}
-	}()
-	return out
-}
