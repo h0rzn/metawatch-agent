@@ -8,34 +8,60 @@ import (
 	"github.com/docker/docker/api/types"
 )
 
-type StatStreamer struct {
+type MetricsStreamer struct {
 	mutex     sync.Mutex
+	Src       Source
 	Consumers map[*Consumer]bool
 	Reg       chan *Consumer
 	Ureg      chan *Consumer
 	Dis       chan *DataSet
-	Shut      chan int
+	CurReq    chan *DataSet
 }
 
-func (s *StatStreamer) SetReader(r io.Reader) {}
+type Source struct {
+	R    io.Reader
+	Dec  *json.Decoder
+	Done chan bool
+}
 
-func (s *StatStreamer) Register(c *Consumer) {
+func NewMetricsStreamer() *MetricsStreamer {
+	return &MetricsStreamer{
+		mutex:     sync.Mutex{},
+		Consumers: make(map[*Consumer]bool),
+		Reg:       make(chan *Consumer),
+		Ureg:      make(chan *Consumer),
+		Dis:       make(chan *DataSet),
+	}
+}
+
+func (s *MetricsStreamer) Source(r io.Reader, d chan bool) {
+	src := Source{R: r, Dec: json.NewDecoder(r), Done: d}
+	s.Src = src
+}
+
+func (s *MetricsStreamer) Register(c *Consumer) {
 	s.mutex.Lock()
 	s.Consumers[c] = true
 	s.mutex.Unlock()
 }
 
-func (s *StatStreamer) Unregister(c *Consumer) {
+func (s *MetricsStreamer) Unregister(c *Consumer) {
 	s.mutex.Lock()
 	close(c.In)
 	delete(s.Consumers, c)
 	s.mutex.Unlock()
 }
 
-func (s *StatStreamer) Produce(dec *json.Decoder) <-chan types.StatsJSON {
+func (s *MetricsStreamer) Produce(dec *json.Decoder, die chan bool) <-chan types.StatsJSON {
 	out := make(chan types.StatsJSON)
 	go func() {
 		for {
+			select {
+			case <-die:
+				close(out)
+				return
+			default:
+			}
 			var stat types.StatsJSON
 			_ = dec.Decode(&stat)
 			out <- stat
@@ -44,11 +70,15 @@ func (s *StatStreamer) Produce(dec *json.Decoder) <-chan types.StatsJSON {
 	return out
 }
 
-func (s *StatStreamer) Shutdown() {}
-
-func (s *StatStreamer) Process(in <-chan types.StatsJSON) <-chan *DataSet {
+func (s *MetricsStreamer) Process(in <-chan types.StatsJSON, die chan bool) <-chan *DataSet {
 	out := make(chan *DataSet)
 	go func() {
+		select {
+		case <-die:
+			close(out)
+			return
+		default:
+		}
 		for statsJson := range in {
 			_ = statsJson
 			set := DataSet{}
@@ -60,17 +90,30 @@ func (s *StatStreamer) Process(in <-chan types.StatsJSON) <-chan *DataSet {
 }
 
 // add done channel and close channels
-func (s *StatStreamer) Run() {
-	for {
-		select {
-		case c := <-s.Reg:
-			s.Register(c)
-		case c := <-s.Ureg:
-			s.Unregister(c)
-		case data := <-s.Dis:
-			for c := range s.Consumers {
-				c.In <- data
+func (s *MetricsStreamer) Run() {
+	die := make(chan bool)
+	prod := s.Produce(s.Src.Dec, die)
+	proc := s.Process(prod, die)
+
+	go func() {
+		for {
+			select {
+			case c := <-s.Reg:
+				s.Register(c)
+			case c := <-s.Ureg:
+				s.Unregister(c)
+			case data := <-s.Dis:
+				for c := range s.Consumers {
+					c.In <- data
+				}
+			case <-s.Src.Done:
+				die <- true
+
 			}
 		}
+	}()
+
+	for set := range proc {
+		s.Dis <- set
 	}
 }
