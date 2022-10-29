@@ -15,7 +15,20 @@ type MetricsStreamer struct {
 	Reg       chan *Consumer
 	Ureg      chan *Consumer
 	Dis       chan *DataSet
-	CurReq    chan *DataSet
+}
+
+type DataSet struct{}
+
+type Consumer struct {
+	In     chan *DataSet
+	Single bool
+}
+
+func NewConsumer(single bool) *Consumer {
+	return &Consumer{
+		In:     make(chan *DataSet),
+		Single: single,
+	}
 }
 
 type Source struct {
@@ -105,6 +118,9 @@ func (s *MetricsStreamer) Run() {
 			case data := <-s.Dis:
 				for c := range s.Consumers {
 					c.In <- data
+					if c.Single { // unregister single dataset consumer after sending dataset
+						s.Unregister(c)
+					}
 				}
 			case <-s.Src.Done:
 				die <- true
