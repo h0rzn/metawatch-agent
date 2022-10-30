@@ -2,19 +2,20 @@ package dock
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
-	"github.com/h0rzn/monitoring_agent/dock/stats"
+	"github.com/h0rzn/monitoring_agent/dock/metrics"
 )
 
 type Container struct {
-	ID    string
-	Names []string
-	Image string
-	State ContainerState
-	c     *client.Client
+	ID      string
+	Names   []string
+	Image   string
+	State   ContainerState
+	Metrics MetricsStreamer
+	Update  chan interface{}
+	c       *client.Client
 }
 
 type ContainerState struct {
@@ -50,27 +51,59 @@ func NewContainer(engineC types.Container, c *client.Client) (*Container, error)
 	return &container, nil
 }
 
-func (c *Container) StatsSnap() stats.Set {
+func (c *Container) Init() error {
+	// metrics
+	metricsDone := make(chan bool)
+	c.Metrics = *NewMetricsStreamer()
+
 	ctx := context.Background()
-	contStats, err := c.c.ContainerStats(ctx, c.ID, false)
+	conMetr, err := c.c.ContainerStats(ctx, c.ID, true)
 	if err != nil {
 		panic(err)
 	}
-	defer contStats.Body.Close()
+	//defer conMetr.Body.Close()
+	c.Metrics.Source(conMetr.Body, metricsDone)
 
-	return stats.NewSet(contStats.Body)
+	go c.Metrics.Run()
+	// register database consumer
+
+	// logs
+
+	// start listener for incomming container change information
+
+	return nil
 }
 
-func (c *Container) StatsStream() <-chan stats.Set {
-	ctx := context.Background()
-	contStats, err := c.c.ContainerStats(ctx, c.ID, true)
-	if err != nil {
-		panic(err)
-	}
-	defer contStats.Body.Close()
+func (c *Container) MetricsSingle() <-chan *metrics.Set {
+	out := make(chan *metrics.Set, 1) // single set will be sent
+	cons := NewConsumer(true)
+	c.Metrics.Reg <- cons
 
-	dec := json.NewDecoder(contStats.Body)
-	prod := stats.ProduceStats(dec)
-	out := stats.GetFromStream(prod)
+	set := <-cons.In
+	out <- set
+	close(out)
 	return out
+}
+
+func (c *Container) MetricsStream(done chan bool) <-chan *metrics.Set {
+	out := make(chan *metrics.Set)
+	go func() {
+		cons := NewConsumer(false)
+		c.Metrics.Reg <- cons
+
+		for metric := range cons.In {
+			select {
+			case <-done:
+				c.Metrics.Ureg <- cons
+			default:
+			}
+			out <- metric
+		}
+		close(out)
+	}()
+	return out
+}
+
+func (c *Container) Run() {
+	c.Metrics.Run()
 }
