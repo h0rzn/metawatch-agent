@@ -3,6 +3,7 @@ package dock
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
@@ -10,12 +11,14 @@ import (
 )
 
 type Controller struct {
+	mutex      *sync.Mutex
 	c          *client.Client
 	Containers []*Container
 }
 
 func NewController() (ctrl *Controller, err error) {
 	ctrl = new(Controller)
+	ctrl.mutex = &sync.Mutex{}
 	ctrl.c, err = client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
 		return nil, err
@@ -86,6 +89,8 @@ func (ctrl *Controller) registerContainer(raw types.Container) error {
 		}
 	}
 
+	ctrl.mutex.Lock()
+	defer ctrl.mutex.Unlock()
 	ctrl.Containers = append(ctrl.Containers, cont)
 	return nil
 }
