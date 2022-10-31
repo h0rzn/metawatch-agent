@@ -1,28 +1,20 @@
 package main
 
 import (
-	"github.com/h0rzn/monitoring_agent/dock"
+	"github.com/gin-gonic/gin"
+	"github.com/h0rzn/monitoring_agent/api"
 )
 
 func main() {
-	ctrl, err := dock.NewController()
-	defer ctrl.CloseClient()
+	api, err := api.CreateConsumer()
 	if err != nil {
 		panic(err)
 	}
-	containers, err := ctrl.RawContainers()
-	if err != nil {
-		panic(err)
-	}
-	for _, engineCont := range containers {
-		cont, err := ctrl.Collect(engineCont)
-		if err != nil {
-			panic(err)
-		}
-		ctrl.AddContainer(cont)
-	}
+	api.Run()
 
-	whoami := ctrl.Containers[0]
-	ctrl.CPU(whoami.ID)
+	r := gin.Default()
 
+	r.GET("/containers/all", api.Containers)
+	r.GET("/containers/:id", api.Container)
+	r.Run()
 }
