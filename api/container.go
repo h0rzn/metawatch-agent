@@ -1,14 +1,17 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/goccy/go-json"
 	"github.com/h0rzn/monitoring_agent/dock"
 )
+
+type KeepAliveMsg struct {
+	KeepAlive bool `json:"keep_alive"`
+}
 
 func (api *API) Container(ctx *gin.Context) {
 	id := ctx.Param("id")
@@ -36,11 +39,17 @@ func (api *API) Containers(ctx *gin.Context) {
 }
 
 func (api *API) streamMetrics(w http.ResponseWriter, r *http.Request, id string) {
-	con, _ := upgrade.Upgrade(w, r, nil) // handle error
+	con, err := upgrade.Upgrade(w, r, nil)
+	if err != nil {
+		errBytes, _ := HttpErrBytes(500, err)
+		w.Write(errBytes)
+	}
 
 	container := api.Controller.Container(id)
 	if container == (&dock.Container{}) {
-		fmt.Println("container not found") // handle error
+		errBytes, _ := HttpErrBytes(404, errors.New("container not found"))
+		w.Write(errBytes)
+		return
 	}
 
 	done := make(chan bool)
@@ -48,12 +57,12 @@ func (api *API) streamMetrics(w http.ResponseWriter, r *http.Request, id string)
 
 	for set := range metrics {
 		setJson, err := json.Marshal(set)
-		fmt.Println("sending:", string(setJson))
 		if err != nil {
-			fmt.Println("error writing json string to ws con")
+			HttpErrBytes(0, err)
+			con.Close()
+			return
 		}
 		_ = con.WriteMessage(1, setJson)
-		// implement timeout, 30s?
 	}
 
 }
