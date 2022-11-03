@@ -2,6 +2,7 @@ package dock
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
@@ -9,18 +10,17 @@ import (
 )
 
 type Container struct {
-	ID      string
-	Names   []string
-	Image   string
-	State   ContainerState
-	Metrics MetricsStreamer
-	Update  chan interface{}
-	c       *client.Client
+	ID      string          `json:"id"`
+	Names   []string        `json:"names"`
+	Image   string          `json:"image"`
+	State   ContainerState  `json:"state"`
+	Metrics MetricsStreamer `json:"-"`
+	c       *client.Client  `json:"-"`
 }
 
 type ContainerState struct {
-	Status  string // "running", "stopped", ...
-	Started string
+	Status  string `json:"status"` // "running", "stopped", ...
+	Started string `json:"since"`
 }
 
 func NewContainer(engineC types.Container, c *client.Client) (*Container, error) {
@@ -74,15 +74,14 @@ func (c *Container) Init() error {
 	return nil
 }
 
-func (c *Container) MetricsSingle() <-chan *metrics.Set {
-	out := make(chan *metrics.Set, 1) // single set will be sent
+func (c *Container) Single(out chan<- *metrics.Set) {
 	cons := NewConsumer(true)
-	c.Metrics.Reg <- cons
-
-	set := <-cons.In
-	out <- set
+	go func(cons *Consumer) {
+		c.Metrics.Reg <- cons
+		set := <-cons.In
+		out <- set
+	}(cons)
 	close(out)
-	return out
 }
 
 func (c *Container) MetricsStream(done chan bool) <-chan *metrics.Set {
@@ -106,4 +105,19 @@ func (c *Container) MetricsStream(done chan bool) <-chan *metrics.Set {
 
 func (c *Container) Run() {
 	c.Metrics.Run()
+}
+
+func (c *Container) MarshalJSON() ([]byte, error) {
+	cons := NewConsumer(true)
+	c.Metrics.Reg <- cons
+	set := <-cons.In
+
+	type Alias Container
+	return json.Marshal(&struct {
+		Metrics *metrics.Set `json:"metrics"`
+		*Alias
+	}{
+		Metrics: set,
+		Alias:   (*Alias)(c),
+	})
 }

@@ -2,6 +2,7 @@ package dock
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -11,31 +12,36 @@ import (
 )
 
 type Controller struct {
-	mutex      *sync.Mutex
 	c          *client.Client
-	Containers []*Container
+	Containers Storage
+}
+
+type Storage struct {
+	mutex sync.Mutex
+	All   []*Container `json:"containers"`
+}
+
+func (sto *Storage) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct {
+		Containers []*Container `json:"containers"`
+	}{
+		Containers: sto.All,
+	})
 }
 
 func NewController() (ctrl *Controller, err error) {
 	ctrl = new(Controller)
-	ctrl.mutex = &sync.Mutex{}
 	ctrl.c, err = client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
 		return nil, err
 	}
+	ctrl.Containers.mutex = sync.Mutex{}
+
 	return ctrl, nil
 }
 
 func (ctrl *Controller) CloseClient() {
 	ctrl.c.Close()
-}
-
-func (ctrl *Controller) Init() {
-	errChan := ctrl.ContainersCollect()
-
-	for containerErr := range errChan {
-		fmt.Println(containerErr.Error())
-	}
 }
 
 func (ctrl *Controller) ContainersCollect() chan error {
@@ -81,7 +87,7 @@ func (ctrl *Controller) registerContainer(raw types.Container) error {
 	}
 
 	// check if container exists
-	for _, c := range ctrl.Containers {
+	for _, c := range ctrl.Containers.All {
 		if c.ID == cont.ID {
 			// handle case
 			fmt.Printf("ignoring attempt to add container %s [%s], already exists\n", cont.Names, cont.ID)
@@ -89,8 +95,17 @@ func (ctrl *Controller) registerContainer(raw types.Container) error {
 		}
 	}
 
-	ctrl.mutex.Lock()
-	defer ctrl.mutex.Unlock()
-	ctrl.Containers = append(ctrl.Containers, cont)
+	ctrl.Containers.mutex.Lock()
+	ctrl.Containers.All = append(ctrl.Containers.All, cont)
+	ctrl.Containers.mutex.Unlock()
 	return nil
+}
+
+func (ctrl *Controller) Container(id string) *Container {
+	for _, container := range ctrl.Containers.All {
+		if container.ID == id {
+			return container
+		}
+	}
+	return &Container{}
 }
