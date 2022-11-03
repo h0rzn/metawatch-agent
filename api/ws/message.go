@@ -4,13 +4,13 @@ import "encoding/json"
 
 type Message struct {
 	Type string      `json:"type"`
-	Set  interface{} `json:"set"`
+	Data interface{} `json:"data"`
 }
 
-func NewMessage(setType string, set interface{}) ([]byte, error) {
+func NewMessage(setType string, data interface{}) ([]byte, error) {
 	msg := &Message{
 		Type: setType,
-		Set:  set,
+		Data: data,
 	}
 	return json.Marshal(msg)
 }

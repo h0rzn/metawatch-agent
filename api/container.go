@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -63,18 +62,17 @@ func (api *API) streamMetrics(w http.ResponseWriter, r *http.Request, id string)
 		select {
 		case <-keepAlive.Challenge:
 			fmt.Println("later")
-			_ = con.WriteMessage(websocket.CloseGoingAway, []byte("later"))
 			con.Close()
 			return
 		default:
 		}
-		setJson, err := json.Marshal(set)
+		msg, err := ws.NewMessage("metric_set", set)
 		if err != nil {
 			HttpErrBytes(0, err)
 			con.Close()
 			return
 		}
-		_ = con.WriteMessage(websocket.TextMessage, setJson)
+		_ = con.WriteMessage(websocket.TextMessage, msg)
 	}
 
 }
