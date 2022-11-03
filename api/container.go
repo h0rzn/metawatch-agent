@@ -3,9 +3,13 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
+	"github.com/h0rzn/monitoring_agent/api/ws"
 	"github.com/h0rzn/monitoring_agent/dock"
 )
 
@@ -24,8 +28,7 @@ func (api *API) Container(ctx *gin.Context) {
 			HttpErr(ctx, http.StatusInternalServerError, err)
 			return
 		}
-		ctx.String(http.StatusOK, string(contJson))
-
+		ctx.Data(http.StatusOK, "application/json; charset=utf-8", contJson)
 	}
 }
 
@@ -35,7 +38,7 @@ func (api *API) Containers(ctx *gin.Context) {
 		HttpErr(ctx, http.StatusInternalServerError, errors.New("failed to fetch containers"))
 		return
 	}
-	ctx.String(http.StatusOK, string(b))
+	ctx.Data(http.StatusOK, "application/json; charset=utf-8", b)
 }
 
 func (api *API) streamMetrics(w http.ResponseWriter, r *http.Request, id string) {
@@ -44,7 +47,6 @@ func (api *API) streamMetrics(w http.ResponseWriter, r *http.Request, id string)
 		errBytes, _ := HttpErrBytes(500, err)
 		w.Write(errBytes)
 	}
-
 	container := api.Controller.Container(id)
 	if container == (&dock.Container{}) {
 		errBytes, _ := HttpErrBytes(404, errors.New("container not found"))
@@ -54,15 +56,25 @@ func (api *API) streamMetrics(w http.ResponseWriter, r *http.Request, id string)
 
 	done := make(chan bool)
 	metrics := container.MetricsStream(done)
+	keepAlive := ws.NewKeepAlive(5 * time.Second)
+	go keepAlive.Run()
 
 	for set := range metrics {
+		select {
+		case <-keepAlive.Challenge:
+			fmt.Println("later")
+			_ = con.WriteMessage(websocket.CloseGoingAway, []byte("later"))
+			con.Close()
+			return
+		default:
+		}
 		setJson, err := json.Marshal(set)
 		if err != nil {
 			HttpErrBytes(0, err)
 			con.Close()
 			return
 		}
-		_ = con.WriteMessage(1, setJson)
+		_ = con.WriteMessage(websocket.TextMessage, setJson)
 	}
 
 }

@@ -50,14 +50,5 @@ func (api *API) Run() {
 			}
 		}(container)
 	}
-
-	api.Router.Use(ContentType())
 	api.Router.Run(api.Addr)
-}
-
-func ContentType() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Writer.Header().Set("Content-Type", "application/json")
-		c.Next()
-	}
 }
