@@ -9,11 +9,15 @@ import (
 )
 
 type Set struct {
-	When time.Time `json:"time"`
-	CPU  CPU       `json:"cpu"`
-	Mem  Memory    `json:"memory"`
-	Disk Disk      `json:"disk"`
-	Net  Net       `json:"net"`
+	When ReadTime `json:"time"`
+	CPU  CPU      `json:"cpu"`
+	Mem  Memory   `json:"memory"`
+	Disk Disk     `json:"disk"`
+	Net  Net      `json:"net"`
+}
+
+type ReadTime struct {
+	Time string `json:"when"`
 }
 
 func NewSet(r io.Reader) Set {
@@ -25,13 +29,16 @@ func NewSet(r io.Reader) Set {
 }
 
 func NewSetWithJSON(stats types.StatsJSON) Set {
+	stamp := stats.Read.Format(time.RFC3339Nano)
+
+	when := ReadTime{Time: string(stamp)}
 	cpu := NewCPU(stats.PreCPUStats, stats.CPUStats)
 	mem := NewMem(stats.MemoryStats)
 	disk := NewDisk(stats.BlkioStats)
 	net := NewNet(stats.Networks)
 
 	return Set{
-		When: time.Time{},
+		When: when,
 		CPU:  *cpu,
 		Mem:  *mem,
 		Disk: *disk,

@@ -2,7 +2,6 @@ package dock
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"sync"
 
@@ -116,26 +115,27 @@ func (s *MetricsStreamer) Run() {
 		for {
 			select {
 			case c := <-s.Reg:
-				fmt.Println("registering consumer")
 				s.register(c)
 			case c := <-s.Ureg:
-				fmt.Println("unregisterung consumer")
 				s.unregister(c)
 			case data := <-s.Dis:
 				for c := range s.Consumers {
 					c.In <- data
 					if c.Single { // unregister single dataset consumer after sending dataset
-						fmt.Println("unregistering consumer after single dataset has been sent")
 						s.unregister(c)
+					} else {
 					}
 				}
 			case <-s.Src.Done:
 				die <- true
+				return
 			}
 		}
 	}()
 
 	for set := range proc {
-		s.Dis <- set
+		if len(s.Consumers) != 0 {
+			s.Dis <- set
+		}
 	}
 }
