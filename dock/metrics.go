@@ -123,7 +123,6 @@ func (s *MetricsStreamer) Run() {
 					c.In <- data
 					if c.Single { // unregister single dataset consumer after sending dataset
 						s.unregister(c)
-					} else {
 					}
 				}
 			case <-s.Src.Done:
