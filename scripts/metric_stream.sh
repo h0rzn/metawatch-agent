@@ -2,4 +2,4 @@
 
 CONTAINER=$1
 
-websocat ws://localhost:8080/containers/$CONTAINER/stream
+websocat --exit-on-eof ws://localhost:8080/containers/$CONTAINER/stream
