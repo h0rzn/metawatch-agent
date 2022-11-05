@@ -31,7 +31,13 @@ func NewAPI(addr string) (*API, error) {
 	}, nil
 }
 
+func corsMW(c *gin.Context) {
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("Access-Control-Allow-Methods", "GET")
+}
+
 func (api *API) RegRoutes() {
+	api.Router.Use(corsMW)
 	api.Router.GET("/containers/:id", api.Container)
 	api.Router.GET("containers/all", api.Containers)
 	api.Router.GET("/containers/:id/stream", api.ContainerMetrics)
