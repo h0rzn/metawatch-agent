@@ -1,54 +1,82 @@
 package logs
 
-import "sync"
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"sync"
 
-// add logic to "ignore" if no consumers are registered
-// as the logs are not supposed to be stored
-// maybe request logs from docker engine on demand?
-type LogStreamer struct {
-	mutex     *sync.Mutex
-	Consumers map[*Consumer]bool
-	Reg       chan *Consumer
-	Ureg      chan *Consumer
-	Dis       chan *Entry
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/client"
+)
+
+type Logs struct {
+	mutex    sync.Mutex
+	C        *client.Client
+	CID      string
+	Streamer *Streamer
+	Done     chan bool
 }
 
-type Consumer struct {
-}
-
-func NewLogStreamer() *LogStreamer {
-	return &LogStreamer{
-		mutex:     &sync.Mutex{},
-		Consumers: make(map[*Consumer]bool),
-		Reg:       make(chan *Consumer),
-		Ureg:      make(chan *Consumer),
-		Dis:       make(chan *Entry),
+func NewLogs(c *client.Client, cid string) *Logs {
+	return &Logs{
+		mutex: sync.Mutex{},
+		C:     c,
+		CID:   cid,
+		Done:  make(chan bool),
 	}
 }
 
-func (s *LogStreamer) Run() {
-	// set pipeline
+func (l *Logs) subscribe() (*Sub, error) {
+	l.mutex.Lock()
+	if l.Streamer == nil {
+		r, err := l.reader()
+		if err != nil {
+			return &Sub{}, errors.New("error creating log reader")
+		}
+		l.Streamer = NewStreamer(r)
+		go l.Streamer.Run()
+	}
+
+	l.mutex.Unlock()
+	return l.Streamer.Sub(), nil
+}
+
+func (l *Logs) reader() (io.Reader, error) {
+	ctx := context.Background()
+	opts := types.ContainerLogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		//Since: unix timestamp, go duration string (1m30s)
+		Timestamps: true,
+		//Details:    true,
+		Follow: true,
+		Tail:   "0",
+	}
+
+	r, err := l.C.ContainerLogs(ctx, l.CID, opts)
+	if err != nil {
+		return r, err
+	}
+	return r, nil
+}
+
+func (l *Logs) Stream(done chan bool) chan *Entry {
+	fmt.Println("requesting log stream")
+
+	out := make(chan *Entry)
+	sub, err := l.subscribe()
+	if err != nil {
+		fmt.Println("failed to subscribe to logs")
+	}
 
 	go func() {
-		select {
-		case c := <-s.Reg:
-			s.mutex.Lock()
-			s.Consumers[c] = true
-			s.mutex.Unlock()
-		case c := <-s.Ureg:
-			s.mutex.Lock()
-			// close input channel of consumer
-			delete(s.Consumers, c)
-			s.mutex.Unlock()
-		case entry := <-s.Dis:
-			for consumer := range s.Consumers {
-				_, _ = consumer, entry
-				// send data to consumer
-			}
-			// add die/done channel handling
-		}
+		go sub.Handle(out)
+		b := <-done
+		fmt.Println("done rcvd", b)
+		l.Streamer.USub(sub)
 	}()
 
-	// distribute entries
-
+	return out
 }
