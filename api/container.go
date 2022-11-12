@@ -2,12 +2,9 @@ package api
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
 	"github.com/h0rzn/monitoring_agent/api/ws"
 	"github.com/h0rzn/monitoring_agent/dock"
 )
@@ -66,24 +63,15 @@ func (api *API) metricsWS(w http.ResponseWriter, r *http.Request, id string) {
 
 	done := make(chan bool)
 	metrics := container.MetricsStream(done)
-	keepAlive := ws.NewKeepAlive(5 * time.Second)
-	go keepAlive.Run()
 
 	for set := range metrics {
-		select {
-		case <-keepAlive.Challenge:
-			fmt.Println("later")
-			con.Close()
-			return
-		default:
-		}
-		msg, err := ws.NewMessage("metric_set", set)
+		msg := ws.NewMessage("metric_set", set)
 		if err != nil {
 			HttpErrBytes(0, err)
 			con.Close()
 			return
 		}
-		_ = con.WriteMessage(websocket.TextMessage, msg)
+		err = con.WriteJSON(msg)
 	}
 
 }
@@ -107,8 +95,8 @@ func (api *API) logsWS(w http.ResponseWriter, r *http.Request, id string) {
 	entries := container.Logs.Stream(done)
 
 	for entry := range entries {
-		fmt.Printf("SND %s\n", entry)
-		err = con.WriteJSON(entry)
+		msg := ws.NewMessage("entry", entry)
+		err = con.WriteJSON(msg)
 		if err != nil {
 			con.Close()
 			return
@@ -116,4 +104,5 @@ func (api *API) logsWS(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	done <- true
 	con.Close()
+
 }
