@@ -6,12 +6,14 @@ import (
 	"io"
 	"strings"
 	"sync"
+
+	"github.com/h0rzn/monitoring_agent/dock/stream"
 )
 
 type Streamer struct {
 	mutex *sync.Mutex
 	r     io.Reader
-	Subs  map[*Sub]bool
+	Subs  map[stream.Subscriber]bool
 	Done  chan bool
 }
 
@@ -19,21 +21,23 @@ func NewStreamer(r io.Reader) *Streamer {
 	return &Streamer{
 		mutex: &sync.Mutex{},
 		r:     r,
-		Subs:  make(map[*Sub]bool),
+		Subs:  make(map[stream.Subscriber]bool),
 		Done:  make(chan bool),
 	}
 }
 
-func (s *Streamer) quit() {
+// Quit completely shutdowns streamer and quits all readers
+func (s *Streamer) Quit() {
 	s.mutex.Lock()
 	for sub := range s.Subs {
-		close(sub.in)
+		sub.Quit()
 	}
 	s.mutex.Unlock()
 }
 
-func (s *Streamer) Sub() *Sub {
-	sub := NewSub()
+// Subscribe creates new subscriber and adds them
+func (s *Streamer) Subscribe() stream.Subscriber {
+	sub := stream.NewTempSub()
 	fmt.Println("[SUB]")
 	s.mutex.Lock()
 	s.Subs[sub] = true
@@ -41,18 +45,22 @@ func (s *Streamer) Sub() *Sub {
 	return sub
 }
 
-func (s *Streamer) USub(sub *Sub) {
+// Unsubscribe quits the subscriber and removes them
+// if no subscribers are left, the streamer quits
+func (s *Streamer) Unsubscribe(sub stream.Subscriber) {
 	fmt.Println("[USUB]")
 	s.mutex.Lock()
-	close(sub.in)
+	sub.Quit()
 	delete(s.Subs, sub)
 	if len(s.Subs) == 0 {
 		fmt.Println("no subs left: closing streamer")
-		s.quit()
+		s.Quit()
 	}
 	s.mutex.Unlock()
 }
 
+// parse parses the byte object to a log entry
+// it returns the live channel of results and an error channel
 func (s *Streamer) parse(d chan bool) (<-chan *Entry, <-chan error) {
 	out := make(chan *Entry)
 	errChan := make(chan error)
@@ -94,6 +102,7 @@ func (s *Streamer) parse(d chan bool) (<-chan *Entry, <-chan error) {
 	return out, errChan
 }
 
+// Run inits parsing and relays entries to the subs
 func (s *Streamer) Run() {
 	done := make(chan bool)
 	logs, errChan := s.parse(done)
@@ -104,10 +113,10 @@ func (s *Streamer) Run() {
 		case entry := <-logs:
 			if len(s.Subs) > 0 {
 				for sub := range s.Subs {
-					sub.in <- entry
+					sub.Put(stream.NewSet("log_entry", entry))
 				}
 			} else {
-				s.quit()
+				s.Quit()
 			}
 		case err := <-errChan:
 			fmt.Println("parse err", err.Error())

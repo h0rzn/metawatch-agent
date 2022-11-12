@@ -2,6 +2,8 @@ package stream
 
 type Subscriber interface {
 	Handle(out chan *Set)
+	Put(*Set)
+	Quit()
 }
 
 type TempSub struct {
@@ -18,4 +20,12 @@ func (sub *TempSub) Handle(out chan *Set) {
 	for set := range sub.In {
 		out <- set
 	}
+}
+
+func (sub *TempSub) Put(set *Set) {
+	sub.In <- set
+}
+
+func (sub *TempSub) Quit() {
+	close(sub.In)
 }
