@@ -40,11 +40,22 @@ func (api *API) Containers(ctx *gin.Context) {
 	ctx.Data(http.StatusOK, "application/json; charset=utf-8", b)
 }
 
-func (api *API) streamMetrics(w http.ResponseWriter, r *http.Request, id string) {
+func (api *API) ContainerMetrics(ctx *gin.Context) {
+	id := ctx.Param("id")
+	api.metricsWS(ctx.Writer, ctx.Request, id)
+}
+
+func (api *API) ContainerLogs(ctx *gin.Context) {
+	id := ctx.Param("id")
+	api.logsWS(ctx.Writer, ctx.Request, id)
+}
+
+func (api *API) metricsWS(w http.ResponseWriter, r *http.Request, id string) {
 	con, err := upgrade.Upgrade(w, r, nil)
 	if err != nil {
 		errBytes, _ := HttpErrBytes(500, err)
 		w.Write(errBytes)
+		return
 	}
 	container := api.Controller.Container(id)
 	if container == (&dock.Container{}) {
@@ -77,7 +88,32 @@ func (api *API) streamMetrics(w http.ResponseWriter, r *http.Request, id string)
 
 }
 
-func (api *API) ContainerMetrics(ctx *gin.Context) {
-	id := ctx.Param("id")
-	api.streamMetrics(ctx.Writer, ctx.Request, id)
+func (api *API) logsWS(w http.ResponseWriter, r *http.Request, id string) {
+	con, err := upgrade.Upgrade(w, r, nil)
+	if err != nil {
+		errBytes, _ := HttpErrBytes(500, err)
+		w.Write(errBytes)
+		return
+	}
+
+	container := api.Controller.Container(id)
+	if container == (&dock.Container{}) {
+		errBytes, _ := HttpErrBytes(404, errors.New("container not found"))
+		w.Write(errBytes)
+		return
+	}
+
+	done := make(chan bool)
+	entries := container.Logs.Stream(done)
+
+	for entry := range entries {
+		fmt.Printf("SND %s\n", entry)
+		err = con.WriteJSON(entry)
+		if err != nil {
+			con.Close()
+			return
+		}
+	}
+	done <- true
+	con.Close()
 }

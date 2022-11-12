@@ -1,97 +1,82 @@
 package logs
 
 import (
-	"encoding/binary"
+	"context"
+	"errors"
+	"fmt"
 	"io"
-	"strings"
+	"sync"
+
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/client"
 )
 
 type Logs struct {
-	Reader struct {
-		Active bool
-		R      io.Reader
-	}
-	Streamer Streamer
-
-	// "active" / "inactive"
-	// "refreshing" indicates that refreshing is in action and no
-	// new refreshes should be called
-	State   string
-	Refresh chan io.Reader
+	mutex    sync.Mutex
+	C        *client.Client
+	CID      string
+	Streamer *Streamer
+	Done     chan bool
 }
 
-type Streamer struct {
-	Reg  chan Consumer
-	Ureg chan Consumer
-	Dis  chan *Entry
-	Done chan bool
-}
-
-type Consumer struct {
-	Get  chan Entry
-	Done chan bool
-}
-
-type Entry struct {
-	Time string `json:"when"`
-	Type string `json:"type"`
-	Data string `json:"data"`
-}
-
-func (s *Streamer) Request()
-
-func (s *Streamer) Parse(d chan bool, r io.Reader) (<-chan Entry, <-chan error) {
-	out := make(chan Entry)
-	errChan := make(chan error)
-
-	hdr := make([]byte, 8)
-	for {
-		select {
-		case <-d:
-			close(out)
-			close(errChan)
-		default:
-		}
-
-		sizes := binary.BigEndian.Uint32(hdr[:4])
-		content := make([]byte, sizes)
-		_, err := r.Read(content)
-		if err != nil && err != io.EOF {
-			errChan <- err
-		}
-
-		time, data, found := strings.Cut(string(content), " ")
-		if found {
-			var streamType string
-			if hdr[0] == 1 {
-				streamType = "stdout"
-			} else {
-				streamType = "stderr"
-			}
-
-			out <- Entry{
-				Time: time,
-				Type: streamType,
-				Data: data,
-			}
-		}
+func NewLogs(c *client.Client, cid string) *Logs {
+	return &Logs{
+		mutex: sync.Mutex{},
+		C:     c,
+		CID:   cid,
+		Done:  make(chan bool),
 	}
 }
 
-func (s *Streamer) Run() {
-
-	go func(done chan bool) {
-		// distribute
-	}(s.Done)
-
-	for {
-		select {
-		case c := <-s.Reg:
-			_ = c
-		case c := <-s.Ureg:
-			_ = c
-		case <-s.Done:
-			// handle shutdown of streamer
+func (l *Logs) subscribe() (*Sub, error) {
+	l.mutex.Lock()
+	if l.Streamer == nil {
+		r, err := l.reader()
+		if err != nil {
+			return &Sub{}, errors.New("error creating log reader")
 		}
+		l.Streamer = NewStreamer(r)
+		go l.Streamer.Run()
 	}
+
+	l.mutex.Unlock()
+	return l.Streamer.Sub(), nil
+}
+
+func (l *Logs) reader() (io.Reader, error) {
+	ctx := context.Background()
+	opts := types.ContainerLogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		//Since: unix timestamp, go duration string (1m30s)
+		Timestamps: true,
+		//Details:    true,
+		Follow: true,
+		Tail:   "0",
+	}
+
+	r, err := l.C.ContainerLogs(ctx, l.CID, opts)
+	if err != nil {
+		return r, err
+	}
+	return r, nil
+}
+
+func (l *Logs) Stream(done chan bool) chan *Entry {
+	fmt.Println("requesting log stream")
+
+	out := make(chan *Entry)
+	sub, err := l.subscribe()
+	if err != nil {
+		fmt.Println("failed to subscribe to logs")
+	}
+
+	go func() {
+		go sub.Handle(out)
+		b := <-done
+		fmt.Println("done rcvd", b)
+		l.Streamer.USub(sub)
+	}()
+
+	return out
 }

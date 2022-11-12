@@ -40,6 +40,23 @@ func NewController() (ctrl *Controller, err error) {
 	return ctrl, nil
 }
 
+func (ctrl *Controller) Init() {
+	errChan := ctrl.ContainersCollect()
+	for err := range errChan {
+		fmt.Println("containers collect err:", err)
+	}
+
+	fmt.Printf("containers indexed: %d\n", len(ctrl.Containers.All))
+
+	for n, container := range ctrl.Containers.All {
+		fmt.Printf("[%s n:%d] starting...\n", container.Names, n)
+		err := container.Init()
+		if err != nil {
+			fmt.Printf("[%s] err: %s\n", container.Names, err.Error())
+		}
+	}
+}
+
 func (ctrl *Controller) CloseClient() {
 	ctrl.c.Close()
 }

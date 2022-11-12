@@ -6,6 +6,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
+	"github.com/h0rzn/monitoring_agent/dock/logs"
 	"github.com/h0rzn/monitoring_agent/dock/metrics"
 )
 
@@ -15,6 +16,7 @@ type Container struct {
 	Image   string          `json:"image"`
 	State   ContainerState  `json:"state"`
 	Metrics MetricsStreamer `json:"-"`
+	Logs    *logs.Logs      `json:"-"`
 	c       *client.Client  `json:"-"`
 }
 
@@ -35,6 +37,9 @@ func NewContainer(engineC types.Container, c *client.Client) (*Container, error)
 	if err != nil {
 		return &Container{}, err
 	}
+
+	// fetch port bindings
+
 	jsonBase := json.ContainerJSONBase
 	status := jsonBase.State.Status
 	statusStarted := jsonBase.State.StartedAt
@@ -63,11 +68,12 @@ func (c *Container) Init() error {
 	}
 	//defer conMetr.Body.Close()
 	c.Metrics.Source(conMetr.Body, metricsDone)
-
 	go c.Metrics.Run()
+
 	// register database consumer
 
 	// logs
+	c.Logs = logs.NewLogs(c.c, c.ID)
 
 	// start listener for incomming container change information
 
@@ -101,10 +107,6 @@ func (c *Container) MetricsStream(done chan bool) <-chan *metrics.Set {
 		close(out)
 	}()
 	return out
-}
-
-func (c *Container) Run() {
-	c.Metrics.Run()
 }
 
 func (c *Container) MarshalJSON() ([]byte, error) {

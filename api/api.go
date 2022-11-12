@@ -1,8 +1,6 @@
 package api
 
 import (
-	"fmt"
-
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/h0rzn/monitoring_agent/dock"
@@ -41,20 +39,10 @@ func (api *API) RegRoutes() {
 	api.Router.GET("/containers/:id", api.Container)
 	api.Router.GET("containers/all", api.Containers)
 	api.Router.GET("/containers/:id/stream", api.ContainerMetrics)
+	api.Router.GET("/containers/:id/logs", api.ContainerLogs)
 }
 
 func (api *API) Run() {
-	errorChan := api.Controller.ContainersCollect()
-	for err := range errorChan {
-		fmt.Println(err.Error())
-	}
-	for _, container := range api.Controller.Containers.All {
-		go func(c *dock.Container) {
-			err := c.Init()
-			if err != nil {
-				panic(err)
-			}
-		}(container)
-	}
+	api.Controller.Init()
 	api.Router.Run(api.Addr)
 }
