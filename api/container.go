@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/h0rzn/monitoring_agent/api/ws"
 	"github.com/h0rzn/monitoring_agent/dock"
 )
 
@@ -18,14 +17,12 @@ func (api *API) Container(ctx *gin.Context) {
 	container := api.Controller.Container(id)
 	if container == (&dock.Container{}) {
 		HttpErr(ctx, http.StatusNotFound, errors.New("container not found"))
-	} else {
-		contJson, err := container.MarshalJSON()
-		if err != nil {
-			HttpErr(ctx, http.StatusInternalServerError, err)
-			return
-		}
-		ctx.Data(http.StatusOK, "application/json; charset=utf-8", contJson)
 	}
+	json, err := container.MarshalJSON()
+	if err != nil {
+		HttpErr(ctx, http.StatusNotFound, errors.New("failed to marshal container"))
+	}
+	ctx.Data(http.StatusOK, "application/json; charset=utf-8", json)
 }
 
 func (api *API) Containers(ctx *gin.Context) {
@@ -54,6 +51,7 @@ func (api *API) metricsWS(w http.ResponseWriter, r *http.Request, id string) {
 		w.Write(errBytes)
 		return
 	}
+
 	container := api.Controller.Container(id)
 	if container == (&dock.Container{}) {
 		errBytes, _ := HttpErrBytes(404, errors.New("container not found"))
@@ -61,21 +59,11 @@ func (api *API) metricsWS(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 
-	done := make(chan bool)
-	metrics := container.MetricsStream(done)
-
-	for set := range metrics {
-		msg := ws.NewMessage("metric_set", set)
-		if err != nil {
-			HttpErrBytes(0, err)
-			con.Close()
-			return
-		}
-		err = con.WriteJSON(msg)
-	}
+	done := make(chan interface{})
+	sets := container.Metrics.Stream(done)
+	WriteSets(con, sets, done)
 
 }
-
 func (api *API) logsWS(w http.ResponseWriter, r *http.Request, id string) {
 	con, err := upgrade.Upgrade(w, r, nil)
 	if err != nil {
@@ -91,18 +79,7 @@ func (api *API) logsWS(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 
-	done := make(chan bool)
-	entries := container.Logs.Stream(done)
-
-	for entry := range entries {
-		msg := ws.NewMessage("entry", entry)
-		err = con.WriteJSON(msg)
-		if err != nil {
-			con.Close()
-			return
-		}
-	}
-	done <- true
-	con.Close()
-
+	done := make(chan interface{})
+	sets := container.Logs.Stream(done)
+	WriteSets(con, sets, done)
 }
