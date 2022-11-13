@@ -37,7 +37,7 @@ func corsMW(c *gin.Context) {
 func (api *API) RegRoutes() {
 	api.Router.Use(corsMW)
 	api.Router.GET("/containers/:id", api.Container)
-	api.Router.GET("containers/all", api.Containers)
+	api.Router.GET("/containers/all", api.Containers)
 	api.Router.GET("/containers/:id/stream", api.ContainerMetrics)
 	api.Router.GET("/containers/:id/logs", api.ContainerLogs)
 }
