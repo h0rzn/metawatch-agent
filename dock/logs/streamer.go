@@ -14,7 +14,7 @@ type Streamer struct {
 	mutex *sync.Mutex
 	r     io.Reader
 	Subs  map[stream.Subscriber]bool
-	Done  chan bool
+	Done  chan struct{}
 }
 
 func NewStreamer(r io.Reader) *Streamer {
@@ -22,7 +22,7 @@ func NewStreamer(r io.Reader) *Streamer {
 		mutex: &sync.Mutex{},
 		r:     r,
 		Subs:  make(map[stream.Subscriber]bool),
-		Done:  make(chan bool),
+		Done:  make(chan struct{}),
 	}
 }
 
@@ -61,8 +61,8 @@ func (s *Streamer) Unsubscribe(sub stream.Subscriber) {
 
 // parse parses the byte object to a log entry
 // it returns the live channel of results and an error channel
-func (s *Streamer) parse(d chan bool) (<-chan *Entry, <-chan error) {
-	out := make(chan *Entry)
+func (s *Streamer) parse(d chan struct{}) (<-chan stream.Set, <-chan error) {
+	out := make(chan stream.Set)
 	errChan := make(chan error)
 
 	go func() {
@@ -95,7 +95,8 @@ func (s *Streamer) parse(d chan bool) (<-chan *Entry, <-chan error) {
 			time, data, found := strings.Cut(string(content), " ")
 			if found {
 				entry := NewEntry(time, data, hdr[0])
-				out <- entry
+				set := stream.NewSet("log_entry", entry)
+				out <- *set
 			}
 		}
 	}()
@@ -104,7 +105,7 @@ func (s *Streamer) parse(d chan bool) (<-chan *Entry, <-chan error) {
 
 // Run inits parsing and relays entries to the subs
 func (s *Streamer) Run() {
-	done := make(chan bool)
+	done := make(chan struct{})
 	logs, errChan := s.parse(done)
 	fmt.Println("parser running")
 

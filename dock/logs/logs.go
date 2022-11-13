@@ -18,7 +18,7 @@ type Logs struct {
 	C        *client.Client
 	CID      string
 	Streamer stream.Streamer
-	Done     chan bool
+	Done     chan struct{}
 }
 
 func NewLogs(c *client.Client, cid string) *Logs {
@@ -26,7 +26,7 @@ func NewLogs(c *client.Client, cid string) *Logs {
 		mutex: sync.Mutex{},
 		C:     c,
 		CID:   cid,
-		Done:  make(chan bool),
+		Done:  make(chan struct{}),
 	}
 }
 
@@ -68,7 +68,7 @@ func (l *Logs) Subscribe() (stream.Subscriber, error) {
 }
 
 // Stream returns the log entries respectively as a set through a returned channel
-func (l *Logs) Stream(done chan interface{}) chan *stream.Set {
+func (l *Logs) Stream(done chan struct{}) chan *stream.Set {
 	fmt.Println("requesting log stream")
 
 	out := make(chan *stream.Set)

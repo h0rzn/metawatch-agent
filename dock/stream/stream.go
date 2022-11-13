@@ -7,7 +7,7 @@ import (
 type Director interface {
 	Source() (io.Reader, error)
 	Subscribe() (Subscriber, error)
-	Stream(chan interface{}) chan *Set
+	Stream(chan struct{}) chan *Set
 }
 
 type Streamer interface {

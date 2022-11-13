@@ -5,7 +5,7 @@ import (
 	"github.com/h0rzn/monitoring_agent/dock/stream"
 )
 
-func WriteSets(con *websocket.Conn, sets chan *stream.Set, done chan interface{}) {
+func WriteSets(con *websocket.Conn, sets chan *stream.Set, done chan struct{}) {
 	for set := range sets {
 		err := con.WriteJSON(set)
 		if err != nil {

@@ -47,7 +47,7 @@ func (s *Streamer) Unsubscribe(sub stream.Subscriber) {
 }
 
 // Produce decodes bytes to types.StatsJSON and returns a live channel with its data
-func (s *Streamer) Produce(dec *json.Decoder, die chan bool) <-chan types.StatsJSON {
+func (s *Streamer) Produce(dec *json.Decoder, die chan struct{}) <-chan types.StatsJSON {
 	out := make(chan types.StatsJSON)
 	go func() {
 		for {
@@ -69,7 +69,7 @@ func (s *Streamer) Produce(dec *json.Decoder, die chan bool) <-chan types.StatsJ
 }
 
 // Process receives the types.StatsJSON channel values and returns channel with live parsed metric sets
-func (s *Streamer) Process(in <-chan types.StatsJSON, die chan bool) <-chan *Set {
+func (s *Streamer) Process(in <-chan types.StatsJSON, die chan struct{}) <-chan *Set {
 	out := make(chan *Set)
 	go func() {
 
@@ -90,7 +90,7 @@ func (s *Streamer) Process(in <-chan types.StatsJSON, die chan bool) <-chan *Set
 
 // add done channel and close channels
 func (s *Streamer) Run() {
-	done := make(chan bool)
+	done := make(chan struct{})
 	prod := s.Produce(s.Src.Dec, done)
 	proc := s.Process(prod, done)
 

@@ -74,10 +74,10 @@ func (c *Container) Init() error {
 }
 
 func (c *Container) MarshalJSON() ([]byte, error) {
-	done := make(chan interface{})
+	done := make(chan struct{})
 	metricC := c.Metrics.Stream(done)
 	set := <-metricC
-	done <- true
+	done <- struct{}{}
 
 	n, ok := set.Data.(*metrics.Set)
 	if !ok {

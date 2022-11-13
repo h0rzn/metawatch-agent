@@ -59,7 +59,7 @@ func (api *API) metricsWS(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 
-	done := make(chan interface{})
+	done := make(chan struct{})
 	sets := container.Metrics.Stream(done)
 	WriteSets(con, sets, done)
 
@@ -79,7 +79,7 @@ func (api *API) logsWS(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 
-	done := make(chan interface{})
+	done := make(chan struct{})
 	sets := container.Logs.Stream(done)
 	WriteSets(con, sets, done)
 }

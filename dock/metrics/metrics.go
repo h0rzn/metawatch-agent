@@ -16,7 +16,7 @@ type Metrics struct {
 	C        *client.Client
 	CID      string
 	Streamer stream.Streamer
-	Done     chan interface{}
+	Done     chan struct{}
 }
 
 func NewMetrics(c *client.Client, cid string) *Metrics {
@@ -24,7 +24,7 @@ func NewMetrics(c *client.Client, cid string) *Metrics {
 		mutex: sync.Mutex{},
 		C:     c,
 		CID:   cid,
-		Done:  make(chan interface{}),
+		Done:  make(chan struct{}),
 	}
 }
 
@@ -49,7 +49,7 @@ func (m *Metrics) Subscribe() (stream.Subscriber, error) {
 	return m.Streamer.Subscribe(), nil
 }
 
-func (m *Metrics) Stream(done chan interface{}) chan *stream.Set {
+func (m *Metrics) Stream(done chan struct{}) chan *stream.Set {
 	out := make(chan *stream.Set)
 	sub, err := m.Subscribe()
 	if err != nil {
