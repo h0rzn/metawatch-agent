@@ -6,34 +6,38 @@ import (
 	"io"
 	"strings"
 	"sync"
+
+	"github.com/h0rzn/monitoring_agent/dock/stream"
 )
 
 type Streamer struct {
 	mutex *sync.Mutex
 	r     io.Reader
-	Subs  map[*Sub]bool
-	Done  chan bool
+	Subs  map[stream.Subscriber]bool
+	Done  chan struct{}
 }
 
 func NewStreamer(r io.Reader) *Streamer {
 	return &Streamer{
 		mutex: &sync.Mutex{},
 		r:     r,
-		Subs:  make(map[*Sub]bool),
-		Done:  make(chan bool),
+		Subs:  make(map[stream.Subscriber]bool),
+		Done:  make(chan struct{}),
 	}
 }
 
-func (s *Streamer) quit() {
+// Quit completely shutdowns streamer and quits all readers
+func (s *Streamer) Quit() {
 	s.mutex.Lock()
 	for sub := range s.Subs {
-		close(sub.in)
+		sub.Quit()
 	}
 	s.mutex.Unlock()
 }
 
-func (s *Streamer) Sub() *Sub {
-	sub := NewSub()
+// Subscribe creates new subscriber and adds them
+func (s *Streamer) Subscribe() stream.Subscriber {
+	sub := stream.NewTempSub()
 	fmt.Println("[SUB]")
 	s.mutex.Lock()
 	s.Subs[sub] = true
@@ -41,20 +45,24 @@ func (s *Streamer) Sub() *Sub {
 	return sub
 }
 
-func (s *Streamer) USub(sub *Sub) {
+// Unsubscribe quits the subscriber and removes them
+// if no subscribers are left, the streamer quits
+func (s *Streamer) Unsubscribe(sub stream.Subscriber) {
 	fmt.Println("[USUB]")
 	s.mutex.Lock()
-	close(sub.in)
+	sub.Quit()
 	delete(s.Subs, sub)
 	if len(s.Subs) == 0 {
 		fmt.Println("no subs left: closing streamer")
-		s.quit()
+		s.Quit()
 	}
 	s.mutex.Unlock()
 }
 
-func (s *Streamer) parse(d chan bool) (<-chan *Entry, <-chan error) {
-	out := make(chan *Entry)
+// parse parses the byte object to a log entry
+// it returns the live channel of results and an error channel
+func (s *Streamer) parse(d chan struct{}) (<-chan stream.Set, <-chan error) {
+	out := make(chan stream.Set)
 	errChan := make(chan error)
 
 	go func() {
@@ -87,15 +95,17 @@ func (s *Streamer) parse(d chan bool) (<-chan *Entry, <-chan error) {
 			time, data, found := strings.Cut(string(content), " ")
 			if found {
 				entry := NewEntry(time, data, hdr[0])
-				out <- entry
+				set := stream.NewSet("log_entry", entry)
+				out <- *set
 			}
 		}
 	}()
 	return out, errChan
 }
 
+// Run inits parsing and relays entries to the subs
 func (s *Streamer) Run() {
-	done := make(chan bool)
+	done := make(chan struct{})
 	logs, errChan := s.parse(done)
 	fmt.Println("parser running")
 
@@ -104,10 +114,10 @@ func (s *Streamer) Run() {
 		case entry := <-logs:
 			if len(s.Subs) > 0 {
 				for sub := range s.Subs {
-					sub.in <- entry
+					sub.Put(stream.NewSet("log_entry", entry))
 				}
 			} else {
-				s.quit()
+				s.Quit()
 			}
 		case err := <-errChan:
 			fmt.Println("parse err", err.Error())

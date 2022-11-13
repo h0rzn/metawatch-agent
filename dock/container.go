@@ -3,11 +3,13 @@ package dock
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/h0rzn/monitoring_agent/dock/logs"
 	"github.com/h0rzn/monitoring_agent/dock/metrics"
+	"github.com/h0rzn/monitoring_agent/dock/stream"
 )
 
 type Container struct {
@@ -15,8 +17,8 @@ type Container struct {
 	Names   []string        `json:"names"`
 	Image   string          `json:"image"`
 	State   ContainerState  `json:"state"`
-	Metrics MetricsStreamer `json:"-"`
-	Logs    *logs.Logs      `json:"-"`
+	Metrics stream.Director `json:"-"`
+	Logs    stream.Director `json:"-"`
 	c       *client.Client  `json:"-"`
 }
 
@@ -58,17 +60,8 @@ func NewContainer(engineC types.Container, c *client.Client) (*Container, error)
 
 func (c *Container) Init() error {
 	// metrics
-	metricsDone := make(chan bool)
-	c.Metrics = *NewMetricsStreamer()
-
-	ctx := context.Background()
-	conMetr, err := c.c.ContainerStats(ctx, c.ID, true)
-	if err != nil {
-		panic(err)
-	}
-	//defer conMetr.Body.Close()
-	c.Metrics.Source(conMetr.Body, metricsDone)
-	go c.Metrics.Run()
+	c.Metrics = metrics.NewMetrics(c.c, c.ID)
+	c.Metrics.Source()
 
 	// register database consumer
 
@@ -80,46 +73,23 @@ func (c *Container) Init() error {
 	return nil
 }
 
-func (c *Container) Single(out chan<- *metrics.Set) {
-	cons := NewConsumer(true)
-	go func(cons *Consumer) {
-		c.Metrics.Reg <- cons
-		set := <-cons.In
-		out <- set
-	}(cons)
-	close(out)
-}
-
-func (c *Container) MetricsStream(done chan bool) <-chan *metrics.Set {
-	out := make(chan *metrics.Set)
-	go func() {
-		cons := NewConsumer(false)
-		c.Metrics.Reg <- cons
-
-		for metric := range cons.In {
-			select {
-			case <-done:
-				c.Metrics.Ureg <- cons
-			default:
-			}
-			out <- metric
-		}
-		close(out)
-	}()
-	return out
-}
-
 func (c *Container) MarshalJSON() ([]byte, error) {
-	cons := NewConsumer(true)
-	c.Metrics.Reg <- cons
-	set := <-cons.In
+	done := make(chan struct{})
+	metricC := c.Metrics.Stream(done)
+	set := <-metricC
+	done <- struct{}{}
+
+	n, ok := set.Data.(*metrics.Set)
+	if !ok {
+		return nil, errors.New("failed to assert interface{} to *metric.Set when marshalling")
+	}
 
 	type Alias Container
 	return json.Marshal(&struct {
 		Metrics *metrics.Set `json:"metrics"`
 		*Alias
 	}{
-		Metrics: set,
+		Metrics: n,
 		Alias:   (*Alias)(c),
 	})
 }
