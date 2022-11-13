@@ -6,6 +6,7 @@ type Subscriber interface {
 	Quit()
 }
 
+// TempSub temporarily subscribes to stream
 type TempSub struct {
 	In chan *Set
 }
