@@ -1,2 +1,6 @@
 # monitoring_agent
-This project represents the backend for the "monitoring" project. It is its purpose to gather information (metrics, events) from /var/run/docker.sock and supply them to the [frontend](https://github.com/M0ttii/monitoring).
+## This Project is WIP
+- [frontend](https://github.com/M0ttii/metawatch-frontend).
+
+Metawatch is a monitoring web app that specializes on Docker. This project is still in its early stage.
+At this point there are *no security measures implemented at all*.
