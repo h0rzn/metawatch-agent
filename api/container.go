@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/h0rzn/monitoring_agent/dock"
 )
 
 type KeepAliveMsg struct {
@@ -14,24 +13,17 @@ type KeepAliveMsg struct {
 
 func (api *API) Container(ctx *gin.Context) {
 	id := ctx.Param("id")
-	container := api.Controller.Container(id)
-	if container == (&dock.Container{}) {
+	cont, exists := api.Controller.ContainerGet(id)
+	if !exists {
 		HttpErr(ctx, http.StatusNotFound, errors.New("container not found"))
 	}
-	json, err := container.MarshalJSON()
-	if err != nil {
-		HttpErr(ctx, http.StatusNotFound, errors.New("failed to marshal container"))
-	}
-	ctx.Data(http.StatusOK, "application/json; charset=utf-8", json)
+	json := cont.JSONSkel()
+	ctx.JSON(http.StatusOK, json)
 }
 
 func (api *API) Containers(ctx *gin.Context) {
-	b, err := api.Controller.Containers.MarshalJSON()
-	if err != nil {
-		HttpErr(ctx, http.StatusInternalServerError, errors.New("failed to fetch containers"))
-		return
-	}
-	ctx.Data(http.StatusOK, "application/json; charset=utf-8", b)
+	json := api.Controller.Storage.JSONSkel()
+	ctx.JSON(http.StatusOK, json)
 }
 
 func (api *API) ContainerMetrics(ctx *gin.Context) {
@@ -52,15 +44,15 @@ func (api *API) metricsWS(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 
-	container := api.Controller.Container(id)
-	if container == (&dock.Container{}) {
+	container, exists := api.Controller.ContainerGet(id)
+	if !exists {
 		errBytes, _ := HttpErrBytes(404, errors.New("container not found"))
 		w.Write(errBytes)
 		return
 	}
 
 	done := make(chan struct{})
-	sets := container.Metrics.Stream(done)
+	sets := container.Streams.Metrics.Stream(done)
 	WriteSets(con, sets, done)
 
 }
@@ -72,14 +64,31 @@ func (api *API) logsWS(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 
-	container := api.Controller.Container(id)
-	if container == (&dock.Container{}) {
+	container, exists := api.Controller.ContainerGet(id)
+	if !exists {
 		errBytes, _ := HttpErrBytes(404, errors.New("container not found"))
 		w.Write(errBytes)
 		return
 	}
 
 	done := make(chan struct{})
-	sets := container.Logs.Stream(done)
+	sets := container.Streams.Logs.Stream(done)
 	WriteSets(con, sets, done)
+}
+
+func (api *API) Test(ctx *gin.Context) {
+	api.testWs(ctx.Writer, ctx.Request)
+}
+
+func (api *API) testWs(w http.ResponseWriter, r *http.Request) {
+	con, err := upgrade.Upgrade(w, r, nil)
+	if err != nil {
+		errBytes, _ := HttpErrBytes(500, err)
+		w.Write(errBytes)
+		return
+	}
+
+	//done := make(chan struct{})
+	client := api.Hub.CreateClient(con)
+	client.Handle()
 }
