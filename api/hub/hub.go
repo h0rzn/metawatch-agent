@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/gorilla/websocket"
 	"github.com/h0rzn/monitoring_agent/dock/container"
 	"github.com/h0rzn/monitoring_agent/dock/controller"
 	"github.com/h0rzn/monitoring_agent/dock/stream"
@@ -24,44 +25,6 @@ type Endpoints struct {
 	Relay       chan *stream.Set
 }
 
-type Ressource struct {
-	mutex       *sync.RWMutex
-	ContainerID string
-	Event       string
-	Data        stream.Subscriber
-	Receivers   []*Client
-}
-
-func NewRessource(cid string, event string, receivers []*Client) *Ressource {
-	return &Ressource{
-		mutex:       &sync.RWMutex{},
-		ContainerID: cid,
-		Event:       event,
-		Data:        nil,
-		Receivers:   receivers,
-	}
-}
-
-func (r *Ressource) ClientIdx(c *Client) int {
-	for i := range r.Receivers {
-		if r.Receivers[i] == c {
-			return i
-		}
-	}
-	return -1
-}
-
-func (r *Ressource) RemoveClient(c *Client) {
-	r.mutex.Lock()
-	idx := r.ClientIdx(c)
-	if idx > -1 {
-		r.Receivers[idx] = &Client{}
-		slices.Delete(r.Receivers, idx, idx)
-	}
-	r.mutex.Unlock()
-
-}
-
 func NewHub(ctr *controller.Controller) *Hub {
 	return &Hub{
 		mutex:      &sync.RWMutex{},
@@ -74,6 +37,10 @@ func NewHub(ctr *controller.Controller) *Hub {
 			Relay:       make(chan *stream.Set),
 		},
 	}
+}
+
+func (h *Hub) CreateClient(con *websocket.Conn) *Client {
+	return NewClient(con, h.Eps)
 }
 
 func (h *Hub) HandleRessource(container *container.Container, r *Ressource) {
@@ -139,7 +106,7 @@ func (h *Hub) RemoveRessource(c *container.Container, r *Ressource) {
 }
 
 func (h *Hub) Subscribe(dem *Demand) {
-	fmt.Println("subscribe for", dem.CID)
+	fmt.Printf("[HUB::subscribe] %s %s\n", dem.Ressource, dem.CID)
 	container, exists := h.Ctr.ContainerGet(dem.CID)
 	if !exists {
 		fmt.Println("[HUB] container not found")
@@ -166,6 +133,7 @@ func (h *Hub) Subscribe(dem *Demand) {
 }
 
 func (h *Hub) Unsubscribe(dem *Demand) {
+	fmt.Printf("[HUB::unsubscribe] %s %s\n", dem.Ressource, dem.CID)
 	_, exists := h.Ctr.ContainerGet(dem.CID)
 	if !exists {
 		return
