@@ -44,51 +44,32 @@ func (h *Hub) CreateClient(con *websocket.Conn) *Client {
 }
 
 func (h *Hub) HandleRessource(container *container.Container, r *Ressource) {
-	fmt.Printf("[HUB] ressource init event:%s for %s\n", r.Event, r.ContainerID)
-	var sub stream.Subscriber
-	var err error
+	fmt.Printf("[HUB] ressource init [%s:%s]\n", r.ContainerID, r.Event)
 
-	switch r.Event {
-	case "logs":
-		sub, err = container.Streams.Logs.Subscribe()
-	case "metrics":
-		sub, err = container.Streams.Metrics.Subscribe()
-	default:
-		fmt.Println("cannot handle unkown ressource", r.Event)
-		return
-	}
+	r.SetStreamer(container)
 
-	if err != nil {
-		fmt.Println("failed to connect ressource with stream", err)
-	}
-
-	in := make(chan *stream.Set)
-	go sub.Handle(in)
-	defer func() {
-		fmt.Println("defer: quit")
-		sub.Quit()
-		h.RemoveRessource(container, r)
-	}()
-	fmt.Println("[HUB] sub is handling stream")
-
-	for data := range in {
-		fmt.Println("handling incoming data", data)
+	fmt.Printf("[HUB::RES_H] handling ressource receiver for %d receivers\n", len(r.Receivers))
+	for set := range r.Data.In {
+		fmt.Printf("[HUB::RESSOURCE] handling set for %d receivers\n", len(r.Receivers))
 		frame := &ResponseFrame{
 			CID:     r.ContainerID,
 			Type:    r.Event,
-			Content: data.Data,
+			Content: set.Data,
 		}
-		r.mutex.RLock()
-		for i := range r.Receivers {
-			fmt.Printf("supplying to %d receivers\n", len(r.Receivers))
-			if len(r.Receivers) == -1 {
-				fmt.Println("everyone left quiting ressource")
-				return
-			}
-			r.Receivers[i].In <- frame
+		h.mutex.RLock()
+		for idx := range r.Receivers {
+			r.Receivers[idx].In <- frame
 		}
-		r.mutex.RUnlock()
+		h.mutex.RUnlock()
+
+		if len(r.Receivers) == 0 {
+			break
+		}
 	}
+
+	// quit ressource after no input
+	r.Quit()
+	h.RemoveRessource(container, r)
 }
 
 func (h *Hub) RemoveRessource(c *container.Container, r *Ressource) {
@@ -98,8 +79,10 @@ func (h *Hub) RemoveRessource(c *container.Container, r *Ressource) {
 		rIdx := slices.Index(ressources, r)
 		if rIdx > -1 {
 			h.mutex.Lock()
+
+			// zero out + remove ressource
 			h.Ressources[c][rIdx] = &Ressource{}
-			slices.Delete(h.Ressources[c], rIdx, rIdx)
+			h.Ressources[c] = append(ressources[:rIdx], ressources[rIdx+1:]...)
 			h.mutex.Unlock()
 		}
 	}
@@ -114,22 +97,18 @@ func (h *Hub) Subscribe(dem *Demand) {
 	}
 
 	res, exists := h.Ressource(dem.CID, dem.Ressource)
+	h.mutex.Lock()
 	if !exists {
 		fmt.Println("[HUB] creating new ressource")
 		// create new ressource
-		r := NewRessource(dem.CID, dem.Ressource, []*Client{dem.Client})
-		fmt.Println("new res nil?", r == nil)
-		h.mutex.Lock()
-		h.Ressources[container] = []*Ressource{r}
+		r := NewRessource(dem.CID, dem.Ressource, dem.Client)
+		h.Ressources[container] = append(h.Ressources[container], r)
 		go h.HandleRessource(container, r)
-		h.mutex.Unlock()
-
 	} else {
 		fmt.Println("[HUB] ressource found, adding client")
-		res.mutex.Lock()
 		res.Receivers = append(res.Receivers, dem.Client)
-		res.mutex.Unlock()
 	}
+	h.mutex.Unlock()
 }
 
 func (h *Hub) Unsubscribe(dem *Demand) {
@@ -144,6 +123,7 @@ func (h *Hub) Unsubscribe(dem *Demand) {
 		for i := range res.Receivers {
 			if res.Receivers[i] == dem.Client {
 				res.RemoveClient(dem.Client)
+				// quit receiver
 				return
 			}
 
@@ -171,10 +151,8 @@ func (h *Hub) Ressource(cid string, event string) (r *Ressource, exists bool) {
 func (h *Hub) ClientLeave(c *Client) {
 	for _, ressources := range h.Ressources {
 		for _, res := range ressources {
-			fmt.Println("deleting client from ressource")
-			res.mutex.Lock()
 			res.RemoveClient(c)
-			res.mutex.Unlock()
+			fmt.Printf("[HUB] removed client: %d left\n", len(res.Receivers))
 		}
 	}
 }

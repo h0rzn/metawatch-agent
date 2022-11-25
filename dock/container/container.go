@@ -10,7 +10,6 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/h0rzn/monitoring_agent/dock/logs"
 	"github.com/h0rzn/monitoring_agent/dock/metrics"
-	"github.com/h0rzn/monitoring_agent/dock/stream"
 )
 
 type Container struct {
@@ -28,8 +27,8 @@ type State struct {
 }
 
 type Streams struct {
-	Metrics stream.Director
-	Logs    stream.Director
+	Logs    *logs.Logs
+	Metrics *metrics.Metrics
 }
 
 type ContainerJSON struct {
@@ -94,16 +93,12 @@ func (cont *Container) Start() error {
 func (c *Container) JSONSkel() *ContainerJSON {
 	var currentMetrics metrics.Set
 
-	done := make(chan struct{})
-	stream := c.Streams.Metrics.Stream(done)
-
-	for cur := range stream {
-		cur, ok := cur.Data.(metrics.Set)
-		done <- struct{}{}
-		if ok {
-			currentMetrics = cur
-		}
+	recv := c.Streams.Metrics.Get()
+	for cur := range recv.In {
+		currentMetrics = cur.Data.(metrics.Set)
+		break
 	}
+	recv.Quit()
 
 	return &ContainerJSON{
 		ID:      c.ID,
