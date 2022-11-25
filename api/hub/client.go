@@ -57,6 +57,7 @@ func (c *Client) Handle() {
 	done := make(chan struct{})
 	input := c.fetch(c.con, done)
 	c.dpatch(input)
+	done <- struct{}{}
 	c.Leave()
 }
 
@@ -73,15 +74,16 @@ func (c *Client) fetch(con *websocket.Conn, done chan struct{}) <-chan *RequestF
 			var frame *RequestFrame
 			err := c.con.ReadJSON(&frame)
 			if frame == nil {
-				fmt.Println("frame is nil, later")
+				fmt.Println("[CLIENT::fetch] frame==nil, later!")
 				break
 			}
-			fmt.Println("frame:", frame)
+			fmt.Println("[CLIENT::fetch]frame:", frame)
 			if err != nil {
 				if !websocket.IsCloseError(err) && !websocket.IsUnexpectedCloseError(err) {
-					fmt.Println("error reading json message", err)
+					fmt.Println("[CLIENT] error reading json message", err)
 				}
 				c.SendErr(errors.New("malformed message"))
+
 				break
 			} else {
 				out <- frame
@@ -102,7 +104,7 @@ func (c *Client) dpatch(in <-chan *RequestFrame) {
 			}
 		}
 		if !resOK {
-			fmt.Println("unkown ressource type", frame.Type)
+			fmt.Println("[CLIENT::dpatch] unkown ressource type", frame.Type)
 			// send error message
 		}
 
@@ -120,7 +122,7 @@ func (c *Client) dpatch(in <-chan *RequestFrame) {
 		case "unsubscribe":
 			c.Eps.Unsubscribe <- request
 		default:
-			fmt.Println("unkown event type", frame.Event)
+			fmt.Println("[CLIENT:dpatch] unkown event type", frame.Event)
 			// send error message: unkown event type
 		}
 	}

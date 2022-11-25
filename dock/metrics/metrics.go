@@ -2,64 +2,96 @@ package metrics
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"io"
 	"sync"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/h0rzn/monitoring_agent/dock/stream"
 )
 
 type Metrics struct {
-	mutex    sync.Mutex
-	C        *client.Client
+	mutex    *sync.Mutex
+	Streamer *stream.Str
+	client   *client.Client
 	CID      string
-	Streamer stream.Streamer
-	Done     chan struct{}
 }
 
 func NewMetrics(c *client.Client, cid string) *Metrics {
 	return &Metrics{
-		mutex: sync.Mutex{},
-		C:     c,
-		CID:   cid,
-		Done:  make(chan struct{}),
+		mutex:    &sync.Mutex{},
+		Streamer: nil,
+		client:   c,
+		CID:      cid,
 	}
 }
 
-func (m *Metrics) Source() (io.Reader, error) {
+func (m *Metrics) Reader() (io.Reader, error) {
 	ctx := context.Background()
-	r, err := m.C.ContainerStats(ctx, m.CID, true)
+	r, err := m.client.ContainerStats(ctx, m.CID, true)
 	return r.Body, err
 }
 
-func (m *Metrics) Subscribe() (stream.Subscriber, error) {
+func (m *Metrics) Get() *stream.Receiver {
+	fmt.Println("[METRICS] GET")
 	m.mutex.Lock()
 	if m.Streamer == nil {
-		r, err := m.Source()
+		err := m.InitStr()
 		if err != nil {
-			return &stream.TempSub{}, errors.New("error creating log reader")
+			fmt.Println("failed to get receiver for logs")
 		}
-		m.Streamer = NewStreamer(r)
-		go m.Streamer.Run()
 	}
-
 	m.mutex.Unlock()
-	return m.Streamer.Subscribe(), nil
+
+	return m.Streamer.Join()
 }
 
-func (m *Metrics) Stream(done chan struct{}) chan *stream.Set {
-	out := make(chan *stream.Set)
-	sub, err := m.Subscribe()
+func (m *Metrics) InitStr() (err error) {
+	r, err := m.Reader()
 	if err != nil {
-		fmt.Println("failed to subscribe to metrics")
+		return
 	}
 
+	m.Streamer = stream.NewStr(r)
+	go m.Streamer.Run(GenPipe)
+	return
+}
+
+func GenPipe(r io.Reader, done chan struct{}) <-chan stream.Set {
+	out := make(chan stream.Set)
+	stats := Parse(r, done)
+
 	go func() {
-		go sub.Handle(out)
-		<-done
-		m.Streamer.Unsubscribe(sub)
+		for stat := range stats {
+			metricSet := NewSetWithJSON(stat)
+			streamSet := stream.NewSet("metric_set", metricSet)
+			out <- *streamSet
+		}
+	}()
+	return out
+}
+
+func Parse(r io.Reader, done chan struct{}) <-chan types.StatsJSON {
+	out := make(chan types.StatsJSON)
+	dec := json.NewDecoder(r)
+
+	go func() {
+		for {
+			select {
+			case <-done:
+				close(out)
+				return
+			default:
+			}
+			var stat types.StatsJSON
+			err := dec.Decode(&stat)
+			if err != nil {
+				panic(err)
+			}
+			out <- stat
+		}
 	}()
 	return out
 }

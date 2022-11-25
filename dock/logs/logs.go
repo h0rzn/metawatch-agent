@@ -2,9 +2,10 @@ package logs
 
 import (
 	"context"
-	"errors"
+	"encoding/binary"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 
 	"github.com/docker/docker/api/types"
@@ -12,26 +13,23 @@ import (
 	"github.com/h0rzn/monitoring_agent/dock/stream"
 )
 
-// Logs implements stream.Director interface
 type Logs struct {
-	mutex    sync.Mutex
-	C        *client.Client
+	mutex    *sync.Mutex
+	Streamer *stream.Str
+	client   *client.Client
 	CID      string
-	Streamer stream.Streamer
-	Done     chan struct{}
 }
 
 func NewLogs(c *client.Client, cid string) *Logs {
 	return &Logs{
-		mutex: sync.Mutex{},
-		C:     c,
-		CID:   cid,
-		Done:  make(chan struct{}),
+		mutex:    &sync.Mutex{},
+		Streamer: nil,
+		client:   c,
+		CID:      cid,
 	}
 }
 
-// Source fetches new logs reader
-func (l *Logs) Source() (io.Reader, error) {
+func (l *Logs) Reader() (io.Reader, error) {
 	ctx := context.Background()
 	opts := types.ContainerLogsOptions{
 		ShowStdout: true,
@@ -43,45 +41,93 @@ func (l *Logs) Source() (io.Reader, error) {
 		Tail:   "0",
 	}
 
-	r, err := l.C.ContainerLogs(ctx, l.CID, opts)
+	r, err := l.client.ContainerLogs(ctx, l.CID, opts)
 	if err != nil {
 		return r, err
 	}
 	return r, nil
 }
 
-// Subscribe returns new Subscriber
-// if streamer is nil, a new streamer will be created in addition
-func (l *Logs) Subscribe() (stream.Subscriber, error) {
+func (l *Logs) Get() *stream.Receiver {
+	fmt.Println("[LOGS] GET")
 	l.mutex.Lock()
 	if l.Streamer == nil {
-		r, err := l.Source()
+		err := l.InitStr()
 		if err != nil {
-			return &stream.TempSub{}, errors.New("error creating log reader")
+			fmt.Println("failed to get receiver for logs")
 		}
-		l.Streamer = NewStreamer(r)
-		go l.Streamer.Run()
 	}
-
 	l.mutex.Unlock()
-	return l.Streamer.Subscribe(), nil
+
+	return l.Streamer.Join()
 }
 
-// Stream returns the log entries respectively as a set through a returned channel
-func (l *Logs) Stream(done chan struct{}) chan *stream.Set {
-	fmt.Println("requesting log stream")
-
-	out := make(chan *stream.Set)
-	sub, err := l.Subscribe()
+func (l *Logs) InitStr() (err error) {
+	r, err := l.Reader()
 	if err != nil {
-		fmt.Println("failed to subscribe to logs")
+		fmt.Println("[LOGS] error initing streamer")
+		return
 	}
 
-	go func() {
-		go sub.Handle(out)
-		<-done
-		l.Streamer.Unsubscribe(sub)
-	}()
+	l.Streamer = stream.NewStr(r)
+	go l.Streamer.Run(GenPipe)
+	go l.StreamerQuitSig()
+	return
+}
 
+func (l *Logs) StreamerQuitSig() {
+	<-l.Streamer.Quit
+	l.Streamer = nil
+}
+
+func GenPipe(r io.Reader, done chan struct{}) <-chan stream.Set {
+	out := make(chan stream.Set)
+	sets := Parse(r, done)
+
+	go func() {
+		for set := range sets {
+			out <- set
+		}
+		close(out)
+	}()
+	return out
+}
+
+func Parse(r io.Reader, done chan struct{}) <-chan stream.Set {
+	out := make(chan stream.Set)
+
+	go func() {
+		for {
+			hdr := make([]byte, 8)
+
+			select {
+			case <-done:
+				close(out)
+				return
+			default:
+			}
+
+			_, err := r.Read(hdr)
+			if err != nil {
+				if err == io.EOF {
+					fmt.Println("eof")
+				}
+			}
+
+			sizes := binary.BigEndian.Uint32(hdr[4:])
+			content := make([]byte, sizes)
+			_, err = r.Read(content)
+			if err != nil && err != io.EOF {
+				//errChan <- err
+				fmt.Println(err)
+			}
+			time, data, found := strings.Cut(string(content), " ")
+			if found {
+				entry := NewEntry(time, data, hdr[0])
+				set := stream.NewSet("log_entry", entry)
+				out <- *set
+			}
+		}
+	}()
 	return out
 }
