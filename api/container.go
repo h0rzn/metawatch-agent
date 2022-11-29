@@ -13,7 +13,7 @@ type KeepAliveMsg struct {
 
 func (api *API) Container(ctx *gin.Context) {
 	id := ctx.Param("id")
-	cont, exists := api.Controller.ContainerGet(id)
+	cont, exists := api.Controller.Container(id)
 	if !exists {
 		HttpErr(ctx, http.StatusNotFound, errors.New("container not found"))
 	}
@@ -44,7 +44,7 @@ func (api *API) metricsWS(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 
-	container, exists := api.Controller.ContainerGet(id)
+	container, exists := api.Controller.Container(id)
 	if !exists {
 		errBytes, _ := HttpErrBytes(404, errors.New("container not found"))
 		w.Write(errBytes)
@@ -65,7 +65,7 @@ func (api *API) logsWS(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 
-	container, exists := api.Controller.ContainerGet(id)
+	container, exists := api.Controller.Container(id)
 	if !exists {
 		errBytes, _ := HttpErrBytes(404, errors.New("container not found"))
 		w.Write(errBytes)
