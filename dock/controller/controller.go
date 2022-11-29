@@ -12,7 +12,7 @@ type Controller struct {
 	Storage *Storage
 }
 
-func NewController() (ctrl *Controller, err error) {
+func NewController() (ctr *Controller, err error) {
 	c, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
 		return nil, err
@@ -24,30 +24,22 @@ func NewController() (ctrl *Controller, err error) {
 	}, err
 }
 
-func (ctrl *Controller) Init() error {
-	rawTypes, err := ctrl.Storage.Discover()
+func (ctr *Controller) Init() error {
+	rawTypes, err := ctr.Storage.Discover()
 	if err != nil {
 		fmt.Println("discover err:", err)
 		return err
 	}
-	err = ctrl.Storage.AddAll(rawTypes)
+	err = ctr.Storage.Add(rawTypes...)
+	go ctr.Storage.Links()
 	return err
 }
 
-func (ctrl *Controller) Quit() {
+func (ctr *Controller) Quit() {
 	// complete this
-	ctrl.c.Close()
+	ctr.c.Close()
 }
 
-func (ctrl *Controller) Container(id string) *container.Container {
-	return ctrl.Storage.Container(id)
-}
-
-func (ctrl *Controller) ContainerGet(id string) (container *container.Container, found bool) {
-	for i := range ctrl.Storage.Containers {
-		if ctrl.Storage.Containers[i].ID == id {
-			return ctrl.Storage.Containers[i], true
-		}
-	}
-	return container, false
+func (ctr *Controller) Container(id string) (container *container.Container, found bool) {
+	return ctr.Storage.Container(id)
 }

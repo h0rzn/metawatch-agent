@@ -90,7 +90,7 @@ func (h *Hub) RemoveRessource(c *container.Container, r *Ressource) {
 
 func (h *Hub) Subscribe(dem *Demand) {
 	fmt.Printf("[HUB::subscribe] %s %s\n", dem.Ressource, dem.CID)
-	container, exists := h.Ctr.ContainerGet(dem.CID)
+	container, exists := h.Ctr.Container(dem.CID)
 	if !exists {
 		fmt.Println("[HUB] container not found")
 		return
@@ -113,7 +113,7 @@ func (h *Hub) Subscribe(dem *Demand) {
 
 func (h *Hub) Unsubscribe(dem *Demand) {
 	fmt.Printf("[HUB::unsubscribe] %s %s\n", dem.Ressource, dem.CID)
-	_, exists := h.Ctr.ContainerGet(dem.CID)
+	_, exists := h.Ctr.Container(dem.CID)
 	if !exists {
 		return
 	}
@@ -133,7 +133,7 @@ func (h *Hub) Unsubscribe(dem *Demand) {
 }
 
 func (h *Hub) Ressource(cid string, event string) (r *Ressource, exists bool) {
-	container, exists := h.Ctr.ContainerGet(cid)
+	container, exists := h.Ctr.Container(cid)
 	if !exists {
 		return r, false
 	}
