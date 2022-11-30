@@ -81,14 +81,15 @@ func (s *Storage) JSONSkel() []*container.ContainerJSON {
 
 func (s *Storage) Links() {
 	for {
-		data := []db.WriteSet{}
+		data := []interface{}{}
 		for _, link := range s.Containers {
-			wr := <-link.Out
-			data = append(data, wr)
+			dbSet := <-link.Out
+			data = append(data, dbSet)
 		}
 		fmt.Println("[STORAGE] sets collected, sending")
 
-		_ = data
+		s.DB.Client.BulkWrite(data)
 		// write data to db instance
+
 	}
 }

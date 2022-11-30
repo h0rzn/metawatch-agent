@@ -1,12 +1,13 @@
 package controller
 
 import (
-	"encoding/json"
 	"fmt"
+
 	"time"
 
 	"github.com/h0rzn/monitoring_agent/dock/container"
 	"github.com/h0rzn/monitoring_agent/dock/controller/db"
+	"github.com/h0rzn/monitoring_agent/dock/metrics"
 	"github.com/h0rzn/monitoring_agent/dock/stream"
 )
 
@@ -19,14 +20,14 @@ type Link struct {
 	// add events
 
 	// out channel for results
-	Out chan db.WriteSet
+	Out chan interface{}
 }
 
 func NewLink(cid string) *Link {
 	return &Link{
 		ContainerID: cid,
 		Done:        make(chan struct{}),
-		Out:         make(chan db.WriteSet),
+		Out:         make(chan interface{}),
 	}
 }
 
@@ -40,26 +41,23 @@ func (l *Link) Run() {
 	for {
 		select {
 		case <-l.Done:
-			// handle quit
+			l.Metrics.Quit()
+			return
 		case set, ok := <-l.Metrics.In:
 			if !ok {
 				fmt.Println("[LINK] cannot read: channel closed")
-				// handle closed channel error
+				return
 			}
 			select {
 			case <-ticker.C:
-				fmt.Println("[LINK] 'tick', sending", set)
-				setJson, err := json.Marshal(set)
-				if err != nil {
-					fmt.Println("[LINK] json marshal error", err)
-				}
+				if metricsSet, ok := set.Data.(metrics.Set); ok {
+					metricsWrap := db.NewMetricsMod(l.ContainerID, metricsSet.When, metricsSet)
+					l.Out <- metricsWrap
+					fmt.Println("[LINK] 'tick', sent:", metricsWrap)
 
-				writeSet := db.WriteSet{
-					ContainerID: l.ContainerID,
-					Metrics:     setJson,
+				} else {
+					fmt.Println("[LINK] failed to parse incomming interface to metrics.Set")
 				}
-
-				l.Out <- writeSet
 			default:
 				_ = set
 			}

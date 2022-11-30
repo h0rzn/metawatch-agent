@@ -14,8 +14,10 @@ type Client struct {
 	URI   string
 }
 
-func NewClient() *Client {
-	return &Client{}
+func NewClient(uri string) *Client {
+	return &Client{
+		URI: uri,
+	}
 }
 
 func (c *Client) Init() (err error) {
@@ -26,6 +28,7 @@ func (c *Client) Init() (err error) {
 	if err != nil {
 		return
 	}
+	fmt.Println("[DB::Client] connection successful")
 	// defer func() {
 	// 	if err := client.Disconnect(context.TODO()); err != nil {
 	// 		panic(err)
@@ -36,16 +39,20 @@ func (c *Client) Init() (err error) {
 	return
 }
 
-func (c *Client) Write(data []WriteSet) {
-	fmt.Println("-----db.write-----")
-	for i, wr := range data {
-		// fmt.Println(wr.ContainerID, wr.Metrics)
-		fmt.Printf("[CLIENT] collected [%d] %s: %s", i, wr.ContainerID, string(wr.Metrics))
+func (c *Client) BulkWrite(data []interface{}) {
+	col := c.Mongo.Database("metawatch").Collection("metrics")
+	ctx := context.Background()
+	res, err := col.InsertMany(ctx, data)
+	if err != nil {
+		fmt.Println("[DB] bulk write err:", err)
 	}
-	fmt.Println("------------------")
-}
+	fmt.Println("[DB] bulk write:")
+	for _, sRes := range res.InsertedIDs {
+		fmt.Printf("%+v\n", sRes)
+	}
 
-type WriteSet struct {
-	ContainerID string
-	Metrics     []byte
+	// coll := c.Mongo.Database("metawatch").Collection("metrics")
+	//  address1 := Address{"1 Lakewood Way", "Elwood City", "PA"}
+	// student1 := Student{FirstName: "Arthur", Address: address1, Age: 8}
+	// _, err = coll.InsertOne(context.TODO(), student1)
 }

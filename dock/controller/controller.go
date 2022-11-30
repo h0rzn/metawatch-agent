@@ -31,7 +31,12 @@ func (ctr *Controller) Init() error {
 		return err
 	}
 	err = ctr.Storage.Add(rawTypes...)
+	if err != nil {
+		return err
+	}
 	go ctr.Storage.Links()
+
+	err = ctr.Storage.DB.Init()
 	return err
 }
 
