@@ -3,8 +3,8 @@ package metrics
 import "github.com/docker/docker/api/types"
 
 type CPU struct {
-	UsagePerc float64 `json:"perc"`
-	Online    float64 `json:"online"`
+	UsagePerc float64 `json:"perc" bson:"cpu_perc"`
+	Online    float64 `json:"online" bson:"cpu_online"`
 }
 
 func NewCPU(preCPU, sysCPU types.CPUStats) *CPU {

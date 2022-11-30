@@ -3,8 +3,8 @@ package metrics
 import "github.com/docker/docker/api/types"
 
 type Net struct {
-	In  float64 `json:"in"`
-	Out float64 `json:"out"`
+	In  float64 `json:"in" bson:"net_in"`
+	Out float64 `json:"out" bson:"net_out"`
 }
 
 func NewNet(net map[string]types.NetworkStats) *Net {
