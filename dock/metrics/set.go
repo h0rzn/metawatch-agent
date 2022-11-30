@@ -9,7 +9,7 @@ import (
 )
 
 type Set struct {
-	When primitive.DateTime `json:"when" bson:"when"`
+	When primitive.DateTime `json:"when" bson:"-"`
 	CPU  CPU                `json:"cpu" bson:"cpu,inline"`
 	Mem  Memory             `json:"memory" bson:"mem,inline"`
 	Disk Disk               `json:"disk" bson:"disk,inline"`

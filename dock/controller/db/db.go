@@ -48,9 +48,9 @@ func (db *DB) InitScheme() error {
 }
 
 type MetricsMod struct {
-	CID     string             `bson:"cid"`            // metadata field
-	When    primitive.DateTime `bson:"when"`           // time
-	Metrics metrics.Set        `bson:"metrics,inline"` // actual data
+	CID     string             `bson:"cid"`     // metadata field
+	When    primitive.DateTime `bson:"when"`    // time
+	Metrics metrics.Set        `bson:"metrics"` // actual data
 }
 
 func NewMetricsMod(cid string, when primitive.DateTime, metrics metrics.Set) *MetricsMod {
