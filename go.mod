@@ -4,6 +4,7 @@ go 1.19
 
 require (
 	github.com/docker/docker v20.10.19+incompatible
+	github.com/gin-contrib/cors v1.4.0
 	github.com/gin-gonic/gin v1.8.1
 	github.com/gorilla/websocket v1.5.0
 	go.mongodb.org/mongo-driver v1.11.0
