@@ -41,9 +41,7 @@ func (api *API) RegRoutes() {
 	api.Router.Use(corsMW)
 	api.Router.GET("/containers/:id", api.Container)
 	api.Router.GET("/containers/all", api.Containers)
-	api.Router.GET("/containers/:id/stream", api.ContainerMetrics)
-	api.Router.GET("/containers/:id/logs", api.ContainerLogs)
-	api.Router.GET("/test", api.Test)
+	api.Router.GET("/stream", api.Stream)
 }
 
 func (api *API) Run() {
