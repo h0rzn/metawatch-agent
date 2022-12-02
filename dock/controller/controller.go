@@ -9,6 +9,7 @@ import (
 type Controller struct {
 	c       *client.Client
 	Storage *Storage
+	Events  *Events
 }
 
 func NewController() (ctr *Controller, err error) {
@@ -34,7 +35,11 @@ func (ctr *Controller) Init() error {
 	}
 	go ctr.Storage.Links()
 
+	ctr.Events = NewEvents(ctr.c, ctr.Storage)
+	go ctr.Events.Run()
+
 	err = ctr.Storage.DB.Init()
+
 	logrus.Infoln("- CONTROLLER - started")
 	return err
 }

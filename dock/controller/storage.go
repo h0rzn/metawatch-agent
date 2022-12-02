@@ -63,6 +63,20 @@ func (s *Storage) Add(raw ...types.Container) error {
 	return nil
 }
 
+func (s *Storage) Remove(c *container.Container) error {
+	logrus.Debugln("- STORAGE - attempting to remove containers")
+	s.mutex.Lock()
+	if link, exists := s.Containers[c]; exists {
+		link.Done <- struct{}{}
+		// stop streamers of container
+		delete(s.Containers, &container.Container{})
+		logrus.Infoln("- STORAGE - container removed")
+	}
+
+	s.mutex.Unlock()
+	return nil
+}
+
 func (s *Storage) Container(id string) (*container.Container, bool) {
 	for container := range s.Containers {
 		if container.ID == id {

@@ -52,7 +52,7 @@ func (l *Link) Run() {
 				if metricsSet, ok := set.Data.(metrics.Set); ok {
 					metricsWrap := db.NewMetricsMod(l.ContainerID, metricsSet.When, metricsSet)
 					l.Out <- metricsWrap
-					logrus.Debugf("- LINK - tick -> sending", metricsWrap)
+					logrus.Debugf("- LINK - tick -> sending for cid: %s\n", metricsWrap.CID)
 
 				} else {
 					logrus.Info("- LINK - failed to parse incomming interface to metrics.Set")

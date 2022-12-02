@@ -88,7 +88,11 @@ func Parse(r io.Reader, done chan struct{}) <-chan types.StatsJSON {
 			var stat types.StatsJSON
 			err := dec.Decode(&stat)
 			if err != nil {
-				panic(err)
+				if err == io.EOF {
+					logrus.Debugln("- METRICS - catched eof while decoding, exiting")
+					return
+				}
+				logrus.Errorln("- METRICS - error while decoding")
 			}
 			out <- stat
 		}
