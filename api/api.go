@@ -40,6 +40,7 @@ func (api *API) RegRoutes() {
 	api.Router.Use(cors.Default())
 	api.Router.GET("/containers/:id", api.Container)
 	api.Router.GET("/containers/all", api.Containers)
+	api.Router.GET("/containers/:id/metrics", api.Metrics)
 	api.Router.GET("/stream", api.Stream)
 }
 

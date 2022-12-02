@@ -2,9 +2,12 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type KeepAliveMsg struct {
@@ -24,6 +27,26 @@ func (api *API) Container(ctx *gin.Context) {
 func (api *API) Containers(ctx *gin.Context) {
 	json := api.Controller.Storage.JSONSkel()
 	ctx.JSON(http.StatusOK, json)
+}
+
+func (api *API) Metrics(ctx *gin.Context) {
+	id := ctx.Param("id")
+
+	query := ctx.Request.URL.Query()
+	layout := "2006-01-02T14:13:00"
+	tmin, err := time.Parse(layout, query.Get("from"))
+	if err != nil {
+		fmt.Println("[API] time parse", err)
+		return
+	}
+	// tmin.IsZero()
+	tminPrim := primitive.NewDateTimeFromTime(tmin)
+
+	tmax := primitive.NewDateTimeFromTime(time.Now())
+	fmt.Println("PARAMS", id, tminPrim, tmax)
+
+	result := api.Controller.Storage.DB.Metrics(id, primitive.NewDateTimeFromTime(tmin), tmax)
+	_ = result
 }
 
 func (api *API) Stream(ctx *gin.Context) {
