@@ -1,6 +1,6 @@
 package stream
 
-import "fmt"
+import "github.com/sirupsen/logrus"
 
 type Receiver struct {
 	In    chan Set
@@ -15,7 +15,7 @@ func NewReceiver(leaver chan *Receiver) *Receiver {
 }
 
 func (recv *Receiver) Quit() {
-	fmt.Println("[RECEIVER] quit")
+	logrus.Debugln("- RECEIVER - quit")
 	close(recv.In)
 	recv.Leave <- recv
 }

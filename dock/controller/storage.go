@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/docker/docker/api/types"
@@ -10,6 +9,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/h0rzn/monitoring_agent/dock/container"
 	"github.com/h0rzn/monitoring_agent/dock/controller/db"
+	"github.com/sirupsen/logrus"
 )
 
 // Storage stores container instances and manages changes
@@ -30,24 +30,24 @@ func NewStorage(c *client.Client) *Storage {
 }
 
 func (s *Storage) Discover() ([]types.Container, error) {
-	fmt.Println("[STORAGE] discovering...")
 	ctx := context.Background()
 	containers, err := s.c.ContainerList(
 		ctx,
 		types.ContainerListOptions{
 			Filters: filters.Args{},
 		})
-	fmt.Printf("discovered %d containers\n", len(containers))
+	logrus.Infof("- STORAGE - discovered %d container(s)\n", len(containers))
 	return containers, err
 }
 
 func (s *Storage) Add(raw ...types.Container) error {
+	var added int
 	for _, rawCont := range raw {
 		cont := container.NewContainer(rawCont, s.c)
 		err := cont.Start()
 		if err != nil {
-			fmt.Println("[STORAGE] ignoring failed container start")
-			return err
+			logrus.Errorf("- STORAGE - container failed to start (ignore): %s", err)
+			continue
 		}
 
 		l := NewLink(cont.ID)
@@ -57,7 +57,9 @@ func (s *Storage) Add(raw ...types.Container) error {
 		l.Init(cont)
 		go l.Run()
 		s.mutex.Unlock()
+		added = added + 1
 	}
+	logrus.Infof("- STORAGE - added %d container(s)\n", added)
 	return nil
 }
 
@@ -86,7 +88,7 @@ func (s *Storage) Links() {
 			dbSet := <-link.Out
 			data = append(data, dbSet)
 		}
-		fmt.Println("[STORAGE] sets collected, sending")
+		logrus.Infof("- STORAGE - sending %d collected sets\n", len(data))
 
 		s.DB.Client.BulkWrite(data)
 		// write data to db instance

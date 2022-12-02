@@ -10,6 +10,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/h0rzn/monitoring_agent/dock/logs"
 	"github.com/h0rzn/monitoring_agent/dock/metrics"
+	"github.com/sirupsen/logrus"
 )
 
 type Container struct {
@@ -79,12 +80,11 @@ func (cont *Container) prepare() <-chan error {
 }
 
 func (cont *Container) Start() error {
-	fmt.Println("preparing container")
+	logrus.Infoln("- CONTAINER - preparing...")
 	select {
 	case err := <-cont.prepare():
 		return err
 	case <-time.After(8 * time.Second):
-		fmt.Printf("container %s start timed out\n", cont.Names[0])
 		return errors.New("container start timed out")
 	}
 }

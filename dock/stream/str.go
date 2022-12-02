@@ -1,9 +1,10 @@
 package stream
 
 import (
-	"fmt"
 	"io"
 	"sync"
+
+	"github.com/sirupsen/logrus"
 )
 
 type Str struct {
@@ -35,7 +36,7 @@ func (s *Str) Join() *Receiver {
 }
 
 func (s *Str) Leave(recv *Receiver) {
-	fmt.Println("[STREAMER] leaving recv")
+	logrus.Debugln("- STREAMER - receiver leaving")
 	s.mutex.Lock()
 	// handle receiver side quit
 	delete(s.Receivers, recv)
@@ -47,6 +48,7 @@ func (s *Str) Leave(recv *Receiver) {
 }
 
 func (s *Str) Exit() {
+	logrus.Debugln("- Streamer - exit...")
 	s.mutex.Lock()
 	for recv := range s.Receivers {
 		s.Leave(recv)
@@ -64,19 +66,19 @@ type GenPipe func(r io.Reader, done chan struct{}) <-chan Set
 func (s *Str) Run(pipe GenPipe) {
 	s.SrcDone = make(chan struct{})
 	sets := pipe(s.Src, s.SrcDone)
-	fmt.Println("[STREAMER] pipeline succesfully built")
+	logrus.Debugln("- STREAMER - pipeline succesfully built")
 
 	// receiver leave events
 	go func() {
-		fmt.Println("[STREAMER] listening for recvleave")
+		logrus.Debug("- STREAMER - listening for recvleave")
 		for leaver := range s.RecvLeave {
-			fmt.Println("[STREAMER] handling recv leave")
+			logrus.Debugln("- STREAMER - handling recv leave")
 			s.Leave(leaver)
 			if len(s.Receivers) == 0 {
 				s.Exit()
 			}
 		}
-		fmt.Println("[STREAMER] stopped recleave listener")
+		logrus.Debugln("- STREAMER - stopped recleave listener")
 	}()
 
 	// relay data to receivers
@@ -87,6 +89,7 @@ func (s *Str) Run(pipe GenPipe) {
 		}
 		s.mutex.RUnlock()
 	}
+	logrus.Debugln("- STREAMER - no longer receiving data, preparing exit")
 
 	s.Exit()
 }

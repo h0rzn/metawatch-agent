@@ -1,14 +1,13 @@
 package controller
 
 import (
-	"fmt"
-
 	"time"
 
 	"github.com/h0rzn/monitoring_agent/dock/container"
 	"github.com/h0rzn/monitoring_agent/dock/controller/db"
 	"github.com/h0rzn/monitoring_agent/dock/metrics"
 	"github.com/h0rzn/monitoring_agent/dock/stream"
+	"github.com/sirupsen/logrus"
 )
 
 const LinkSendInterv time.Duration = 5 * time.Second
@@ -45,7 +44,7 @@ func (l *Link) Run() {
 			return
 		case set, ok := <-l.Metrics.In:
 			if !ok {
-				fmt.Println("[LINK] cannot read: channel closed")
+				logrus.Error("- LINK - cannot read: channel closed")
 				return
 			}
 			select {
@@ -53,10 +52,10 @@ func (l *Link) Run() {
 				if metricsSet, ok := set.Data.(metrics.Set); ok {
 					metricsWrap := db.NewMetricsMod(l.ContainerID, metricsSet.When, metricsSet)
 					l.Out <- metricsWrap
-					fmt.Println("[LINK] 'tick', sent:", metricsWrap)
+					logrus.Debugf("- LINK - tick -> sending", metricsWrap)
 
 				} else {
-					fmt.Println("[LINK] failed to parse incomming interface to metrics.Set")
+					logrus.Info("- LINK - failed to parse incomming interface to metrics.Set")
 				}
 			default:
 				_ = set

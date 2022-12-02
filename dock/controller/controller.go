@@ -1,10 +1,9 @@
 package controller
 
 import (
-	"fmt"
-
 	"github.com/docker/docker/client"
 	"github.com/h0rzn/monitoring_agent/dock/container"
+	"github.com/sirupsen/logrus"
 )
 
 type Controller struct {
@@ -27,7 +26,6 @@ func NewController() (ctr *Controller, err error) {
 func (ctr *Controller) Init() error {
 	rawTypes, err := ctr.Storage.Discover()
 	if err != nil {
-		fmt.Println("discover err:", err)
 		return err
 	}
 	err = ctr.Storage.Add(rawTypes...)
@@ -37,12 +35,14 @@ func (ctr *Controller) Init() error {
 	go ctr.Storage.Links()
 
 	err = ctr.Storage.DB.Init()
+	logrus.Infoln("- CONTROLLER - started")
 	return err
 }
 
 func (ctr *Controller) Quit() {
 	// complete this
 	ctr.c.Close()
+	logrus.Infoln("- CONTROLLER - quit")
 }
 
 func (ctr *Controller) Container(id string) (container *container.Container, found bool) {

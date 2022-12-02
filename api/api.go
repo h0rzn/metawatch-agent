@@ -8,6 +8,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/h0rzn/monitoring_agent/api/hub"
 	"github.com/h0rzn/monitoring_agent/dock/controller"
+	"github.com/sirupsen/logrus"
 )
 
 var upgrade = websocket.Upgrader{
@@ -45,8 +46,12 @@ func (api *API) RegRoutes() {
 }
 
 func (api *API) Run() {
-	api.Controller.Init()
+	err := api.Controller.Init()
+	if err != nil {
+		logrus.Errorln("- API - failed to create controller, leaving...")
+		return
+	}
 	go api.Hub.Run()
+	logrus.Infoln("- API - starting gin router")
 	api.Router.Run(api.Addr)
-
 }

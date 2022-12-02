@@ -11,6 +11,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/h0rzn/monitoring_agent/dock/stream"
+	"github.com/sirupsen/logrus"
 )
 
 type Logs struct {
@@ -49,12 +50,12 @@ func (l *Logs) Reader() (io.Reader, error) {
 }
 
 func (l *Logs) Get() *stream.Receiver {
-	fmt.Println("[LOGS] GET")
+	logrus.Infoln("- LOGS - requested receiver")
 	l.mutex.Lock()
 	if l.Streamer == nil {
 		err := l.InitStr()
 		if err != nil {
-			fmt.Println("failed to get receiver for logs")
+			logrus.Errorln("- LOGS - failed to get receiver")
 		}
 	}
 	l.mutex.Unlock()
@@ -65,7 +66,7 @@ func (l *Logs) Get() *stream.Receiver {
 func (l *Logs) InitStr() (err error) {
 	r, err := l.Reader()
 	if err != nil {
-		fmt.Println("[LOGS] error initing streamer")
+		logrus.Errorln("- LOGS - error initing streamer")
 		return
 	}
 

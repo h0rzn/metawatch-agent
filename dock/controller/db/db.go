@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/h0rzn/monitoring_agent/dock/metrics"
+	"github.com/sirupsen/logrus"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -25,7 +26,7 @@ func NewDB() *DB {
 }
 
 func (db *DB) Init() error {
-	fmt.Println("[DB] init...")
+	logrus.Infoln("- DB - init...")
 	db.Client = NewClient(URI)
 	err := db.Client.Init()
 	if err != nil {
@@ -51,7 +52,7 @@ func (db *DB) InitScheme() error {
 }
 
 func (db *DB) Metrics(cid string, tmin primitive.DateTime, tmax primitive.DateTime) map[string][]metrics.Set {
-
+	logrus.Debugf("- DB - aggregate for %s (%s-%s)\n", cid, tmin, tmax)
 	// mDif := 2
 	// tminRaw := tmax.Time().Add(time.Duration(-mDif) * time.Hour)
 	// tmin := primitive.NewDateTimeFromTime(tminRaw)
@@ -85,7 +86,7 @@ func (db *DB) Metrics(cid string, tmin primitive.DateTime, tmax primitive.DateTi
 	// map["cid"][...]
 	out := make(map[string][]metrics.Set)
 	out[cid] = make([]metrics.Set, len(result))
-	fmt.Printf("[DB] aggregated %d sets\n", len(result))
+	logrus.Debugf("- DB - aggregated %d sets\n", len(result))
 
 	for _, prim := range result {
 		set := prim.Metrics

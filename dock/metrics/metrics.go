@@ -3,13 +3,13 @@ package metrics
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"sync"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/h0rzn/monitoring_agent/dock/stream"
+	"github.com/sirupsen/logrus"
 )
 
 type Metrics struct {
@@ -35,12 +35,12 @@ func (m *Metrics) Reader() (io.Reader, error) {
 }
 
 func (m *Metrics) Get() *stream.Receiver {
-	fmt.Println("[METRICS] GET")
+	logrus.Infoln("- METRICS - requested receiver")
 	m.mutex.Lock()
 	if m.Streamer == nil {
 		err := m.InitStr()
 		if err != nil {
-			fmt.Println("failed to get receiver for logs")
+			logrus.Errorln("- METRICS - failed to get receiver")
 		}
 	}
 	m.mutex.Unlock()
