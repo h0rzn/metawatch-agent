@@ -30,7 +30,7 @@ func (ev *Events) Run() {
 		case event := <-evs:
 			ev.catch(event)
 		case err := <-errs:
-			_ = err
+			logrus.Errorf("- EVENTS - erroring receiving events: %s\n", err.Error())
 		}
 	}
 
@@ -38,11 +38,13 @@ func (ev *Events) Run() {
 
 func (ev *Events) onStop(e events.Message) {
 	// check if container is indexed
-	if container, exists := ev.Strg.Container(e.ID); exists {
-		ev.Strg.Remove(container)
-	} else {
-		logrus.Debugln("- EVENTS - stop: container not indexed")
-	}
+	ev.Strg.Remove(e.ID)
+}
+
+func (ev *Events) onStart(e events.Message) {
+	// get cid
+	// query containers with filter
+	// create new container
 }
 
 // https://docs.docker.com/engine/reference/commandline/events/
@@ -70,9 +72,9 @@ func (ev *Events) catch(event events.Message) {
 	// }
 
 	switch event.Status {
-	// case "start":
-	// 	logrus.Infof("- EVENTS - handling container [%s] event %s", event.Status, event.From)
-	// 	ev.onStart(event)
+	case "start":
+		logrus.Infof("- EVENTS - handling container [%s] event %s", event.Status, event.From)
+		ev.onStart(event)
 	case "stop":
 		logrus.Infof("- EVENTS - handling container [%s] event %s", event.Status, event.From)
 		ev.onStop(event)

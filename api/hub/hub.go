@@ -47,27 +47,29 @@ func (h *Hub) HandleRessource(container *container.Container, r *Ressource) {
 	logrus.Infof("- HUB - handling ressource receiver for %d receivers\n", len(r.Receivers))
 
 	r.SetStreamer(container)
-	for set := range r.Data.In {
-		logrus.Debugf("- HUB - handling ressource set for %d receivers\n", len(r.Receivers))
-		frame := &ResponseFrame{
-			CID:     r.ContainerID,
-			Type:    r.Event,
-			Content: set.Data,
-		}
-		h.mutex.RLock()
-		for idx := range r.Receivers {
-			r.Receivers[idx].In <- frame
-		}
-		h.mutex.RUnlock()
+	for {
+		set, more := <-r.Data.In
+		if more {
+			logrus.Debugf("- HUB - handling ressource set for %d receivers\n", len(r.Receivers))
+			frame := &ResponseFrame{
+				CID:     r.ContainerID,
+				Type:    r.Event,
+				Content: set.Data,
+			}
+			h.mutex.RLock()
+			for idx := range r.Receivers {
+				r.Receivers[idx].In <- frame
+			}
+			h.mutex.RUnlock()
 
-		if len(r.Receivers) == 0 {
-			break
+			if len(r.Receivers) == 0 {
+				break
+			}
+		} else {
+			r.Quit()
+			h.RemoveRessource(container, r)
 		}
 	}
-
-	// quit ressource after no input
-	r.Quit()
-	h.RemoveRessource(container, r)
 }
 
 func (h *Hub) RemoveRessource(c *container.Container, r *Ressource) {

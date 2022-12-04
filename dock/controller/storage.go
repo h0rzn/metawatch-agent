@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/docker/docker/api/types"
@@ -12,21 +13,30 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	NotifyAdd = iota
+	NotifyRem
+)
+
 // Storage stores container instances and manages changes
 type Storage struct {
-	mutex      sync.Mutex
+	mutex      sync.RWMutex
 	Containers map[*container.Container]*Link
 	c          *client.Client
 	DB         *db.DB
+	Events     *Events
 }
 
 func NewStorage(c *client.Client) *Storage {
-	return &Storage{
-		mutex:      sync.Mutex{},
+	strg := &Storage{
+		mutex:      sync.RWMutex{},
 		Containers: make(map[*container.Container]*Link),
 		c:          c,
 		DB:         &db.DB{},
 	}
+	strg.Events = NewEvents(c, strg)
+	go strg.Events.Run()
+	return strg
 }
 
 func (s *Storage) Discover() ([]types.Container, error) {
@@ -63,17 +73,22 @@ func (s *Storage) Add(raw ...types.Container) error {
 	return nil
 }
 
-func (s *Storage) Remove(c *container.Container) error {
-	logrus.Debugln("- STORAGE - attempting to remove containers")
+func (s *Storage) Remove(cid string) error {
+	logrus.Debugf("- STORAGE - attempting to remove container %s\n", cid)
 	s.mutex.Lock()
-	if link, exists := s.Containers[c]; exists {
-		link.Done <- struct{}{}
-		// stop streamers of container
-		delete(s.Containers, &container.Container{})
-		logrus.Infoln("- STORAGE - container removed")
-	}
+	if container, exists := s.Container(cid); exists {
 
+		s.Containers[container].Done <- struct{}{}
+		container.Streams.Metrics.Streamer.Exit()
+		container.Streams.Logs.Streamer.Exit()
+
+		delete(s.Containers, container)
+		logrus.Infoln("- STORAGE - container removed")
+	} else {
+		fmt.Printf("cid: %s doesnt exist\n", cid)
+	}
 	s.mutex.Unlock()
+
 	return nil
 }
 
@@ -98,14 +113,18 @@ func (s *Storage) JSONSkel() []*container.ContainerJSON {
 func (s *Storage) Links() {
 	for {
 		data := []interface{}{}
+		// s.mutex.RLock()
 		for _, link := range s.Containers {
-			dbSet := <-link.Out
+			dbSet, more := <-link.Out
+			if !more {
+				continue
+			}
 			data = append(data, dbSet)
 		}
+		// s.mutex.RUnlock()
 		logrus.Infof("- STORAGE - sending %d collected sets\n", len(data))
 
 		s.DB.Client.BulkWrite(data)
-		// write data to db instance
 
 	}
 }

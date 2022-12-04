@@ -30,7 +30,7 @@ func NewLogs(c *client.Client, cid string) *Logs {
 	}
 }
 
-func (l *Logs) Reader() (io.Reader, error) {
+func (l *Logs) Reader() (io.ReadCloser, error) {
 	ctx := context.Background()
 	opts := types.ContainerLogsOptions{
 		ShowStdout: true,
@@ -49,7 +49,7 @@ func (l *Logs) Reader() (io.Reader, error) {
 	return r, nil
 }
 
-func (l *Logs) Get() *stream.Receiver {
+func (l *Logs) Get(interv bool) *stream.Receiver {
 	logrus.Infoln("- LOGS - requested receiver")
 	l.mutex.Lock()
 	if l.Streamer == nil {
@@ -60,7 +60,7 @@ func (l *Logs) Get() *stream.Receiver {
 	}
 	l.mutex.Unlock()
 
-	return l.Streamer.Join()
+	return l.Streamer.Join(interv)
 }
 
 func (l *Logs) InitStr() (err error) {
@@ -71,17 +71,16 @@ func (l *Logs) InitStr() (err error) {
 	}
 
 	l.Streamer = stream.NewStr(r)
-	go l.Streamer.Run(GenPipe)
-	go l.StreamerQuitSig()
+	go l.Cylce()
 	return
 }
 
-func (l *Logs) StreamerQuitSig() {
-	<-l.Streamer.Quit
+func (l *Logs) Cylce() {
+	l.Streamer.Run(GenPipe)
 	l.Streamer = nil
 }
 
-func GenPipe(r io.Reader, done chan struct{}) <-chan stream.Set {
+func GenPipe(r io.ReadCloser, done chan struct{}) <-chan stream.Set {
 	out := make(chan stream.Set)
 	sets := Parse(r, done)
 
@@ -94,7 +93,7 @@ func GenPipe(r io.Reader, done chan struct{}) <-chan stream.Set {
 	return out
 }
 
-func Parse(r io.Reader, done chan struct{}) <-chan stream.Set {
+func Parse(r io.ReadCloser, done chan struct{}) <-chan stream.Set {
 	out := make(chan stream.Set)
 
 	go func() {
@@ -104,6 +103,7 @@ func Parse(r io.Reader, done chan struct{}) <-chan stream.Set {
 			select {
 			case <-done:
 				close(out)
+				r.Close()
 				return
 			default:
 			}

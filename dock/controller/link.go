@@ -1,16 +1,12 @@
 package controller
 
 import (
-	"time"
-
 	"github.com/h0rzn/monitoring_agent/dock/container"
 	"github.com/h0rzn/monitoring_agent/dock/controller/db"
 	"github.com/h0rzn/monitoring_agent/dock/metrics"
 	"github.com/h0rzn/monitoring_agent/dock/stream"
 	"github.com/sirupsen/logrus"
 )
-
-const LinkSendInterv time.Duration = 5 * time.Second
 
 type Link struct {
 	ContainerID string
@@ -31,12 +27,10 @@ func NewLink(cid string) *Link {
 }
 
 func (l *Link) Init(container *container.Container) {
-	l.Metrics = container.Streams.Metrics.Get()
+	l.Metrics = container.Streams.Metrics.Get(true)
 }
 
 func (l *Link) Run() {
-	ticker := time.NewTicker(LinkSendInterv)
-
 	for {
 		select {
 		case <-l.Done:
@@ -45,21 +39,19 @@ func (l *Link) Run() {
 		case set, ok := <-l.Metrics.In:
 			if !ok {
 				logrus.Error("- LINK - cannot read: channel closed")
+				close(l.Out)
 				return
 			}
-			select {
-			case <-ticker.C:
-				if metricsSet, ok := set.Data.(metrics.Set); ok {
-					metricsWrap := db.NewMetricsMod(l.ContainerID, metricsSet.When, metricsSet)
-					l.Out <- metricsWrap
-					logrus.Debugf("- LINK - tick -> sending for cid: %s\n", metricsWrap.CID)
+			if metricsSet, ok := set.Data.(metrics.Set); ok {
+				metricsWrap := db.NewMetricsMod(l.ContainerID, metricsSet.When, metricsSet)
+				l.Out <- metricsWrap
+				logrus.Debugf("- LINK - tick -> sending for cid: %s\n", metricsWrap.CID)
 
-				} else {
-					logrus.Info("- LINK - failed to parse incomming interface to metrics.Set")
-				}
-			default:
-				_ = set
+			} else {
+				logrus.Info("- LINK - failed to parse incomming interface to metrics.Set")
 			}
+
 		}
+
 	}
 }

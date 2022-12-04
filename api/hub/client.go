@@ -122,7 +122,7 @@ func (c *Client) dpatch(in <-chan *RequestFrame) {
 		case "unsubscribe":
 			c.Eps.Unsubscribe <- request
 		default:
-			fmt.Println("[CLIENT:dpatch] unkown event type", frame.Event)
+			fmt.Println("[CLIENT:dpatch] unkown event type", frame.Event)
 			// send error message: unkown event type
 		}
 	}

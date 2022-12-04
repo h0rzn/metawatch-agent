@@ -93,7 +93,7 @@ func (cont *Container) Start() error {
 func (c *Container) JSONSkel() *ContainerJSON {
 	var currentMetrics metrics.Set
 
-	recv := c.Streams.Metrics.Get()
+	recv := c.Streams.Metrics.Get(false)
 	for cur := range recv.In {
 		currentMetrics = cur.Data.(metrics.Set)
 		break

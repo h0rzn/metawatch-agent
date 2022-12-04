@@ -29,10 +29,10 @@ func NewRessource(cid string, event string, receiver *Client) *Ressource {
 func (r *Ressource) SetStreamer(container *container.Container) {
 	switch r.Event {
 	case "logs":
-		r.Data = container.Streams.Logs.Get()
+		r.Data = container.Streams.Logs.Get(false)
 		logrus.Infof("- RESSOURCE - logs.recv created\n", r.Data)
 	case "metrics":
-		r.Data = container.Streams.Metrics.Get()
+		r.Data = container.Streams.Metrics.Get(false)
 		logrus.Infof("- RESSOURCE - metrics.recv created\n", r.Data)
 	default:
 		logrus.Errorf("- RESSOURCE - ressource init unkown event type: %s\n", r.Event)

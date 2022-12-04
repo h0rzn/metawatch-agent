@@ -6,7 +6,7 @@ import (
 )
 
 func main() {
-	logrus.SetLevel(logrus.InfoLevel)
+	logrus.SetLevel(logrus.DebugLevel)
 	logrus.Infoln("starting metawach-agent")
 	api, err := api.NewAPI(":8080")
 	if err != nil {
