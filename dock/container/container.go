@@ -89,22 +89,36 @@ func (cont *Container) Start() error {
 	}
 }
 
+func (cont *Container) Stop() {
+	err := cont.Streams.Metrics.Stop()
+	if err != nil {
+		logrus.Errorf("- CONTAINER - stop err: %s", err)
+	}
+	err = cont.Streams.Logs.Stop()
+	if err != nil {
+		logrus.Errorf("- CONTAINER - stop err: %s", err)
+	}
+}
+
 // JSON returns a json valid struct for a container
-func (c *Container) JSONSkel() *ContainerJSON {
+func (cont *Container) JSONSkel() *ContainerJSON {
 	var currentMetrics metrics.Set
 
-	recv := c.Streams.Metrics.Get(false)
+	recv, err := cont.Streams.Metrics.Get(false)
+	if err != nil {
+		return &ContainerJSON{}
+	}
 	for cur := range recv.In {
 		currentMetrics = cur.Data.(metrics.Set)
 		break
 	}
-	recv.Quit()
+	recv.Close(false)
 
 	return &ContainerJSON{
-		ID:      c.ID,
-		Names:   c.Names,
-		Image:   c.Image,
-		State:   c.State,
+		ID:      cont.ID,
+		Names:   cont.Names,
+		Image:   cont.Image,
+		State:   cont.State,
 		Metrics: &currentMetrics,
 	}
 }

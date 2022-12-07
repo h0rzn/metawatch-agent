@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -48,27 +49,35 @@ func (h *Hub) HandleRessource(container *container.Container, r *Ressource) {
 
 	r.SetStreamer(container)
 	for {
-		set, more := <-r.Data.In
-		if more {
-			logrus.Debugf("- HUB - handling ressource set for %d receivers\n", len(r.Receivers))
-			frame := &ResponseFrame{
-				CID:     r.ContainerID,
-				Type:    r.Event,
-				Content: set.Data,
-			}
-			h.mutex.RLock()
-			for idx := range r.Receivers {
-				r.Receivers[idx].In <- frame
-			}
-			h.mutex.RUnlock()
-
-			if len(r.Receivers) == 0 {
-				break
-			}
-		} else {
+		select {
+		case <-r.DataRcv.Closing:
+			fmt.Println("ressource: receiver forced to close...")
 			r.Quit()
-			h.RemoveRessource(container, r)
+		case set, more := <-r.DataRcv.In:
+			if more && len(r.Receivers) > 0 {
+				logrus.Debugf("- HUB - handling ressource set for %d receivers\n", len(r.Receivers))
+				frame := &ResponseFrame{
+					CID:     r.ContainerID,
+					Type:    r.Event,
+					Content: set.Data,
+				}
+				h.mutex.RLock()
+				for idx := range r.Receivers {
+					r.Receivers[idx].In <- frame
+				}
+				h.mutex.RUnlock()
+
+				if len(r.Receivers) == 0 {
+					break
+				}
+			} else {
+				fmt.Println("hub res quit and remove")
+				r.Quit()
+				h.RemoveRessource(container, r)
+				return
+			}
 		}
+
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/gorilla/websocket"
+	"github.com/sirupsen/logrus"
 )
 
 // RequestFrame is a message holder for client messages/requests
@@ -27,6 +28,7 @@ type Client struct {
 	con        *websocket.Conn
 	Eps        *Endpoints
 	In         chan *ResponseFrame
+	Done       chan struct{}
 	AllowedRes []string
 }
 
@@ -41,6 +43,7 @@ func NewClient(con *websocket.Conn, eps *Endpoints) *Client {
 		con:        con,
 		Eps:        eps,
 		In:         make(chan *ResponseFrame),
+		Done:       make(chan struct{}),
 		AllowedRes: allowed,
 	}
 }
@@ -56,7 +59,9 @@ func (c *Client) Handle() {
 	go c.Input()
 	done := make(chan struct{})
 	input := c.fetch(c.con, done)
-	c.dpatch(input)
+	go c.dpatch(input)
+	<-c.Done
+
 	done <- struct{}{}
 	c.Leave()
 }
@@ -67,6 +72,8 @@ func (c *Client) fetch(con *websocket.Conn, done chan struct{}) <-chan *RequestF
 		for {
 			select {
 			case <-done:
+				logrus.Debugln("- CLIENT - received done signal")
+				close(out)
 				return
 			default:
 			}
@@ -74,13 +81,13 @@ func (c *Client) fetch(con *websocket.Conn, done chan struct{}) <-chan *RequestF
 			var frame *RequestFrame
 			err := c.con.ReadJSON(&frame)
 			if frame == nil {
-				fmt.Println("[CLIENT::fetch] frame==nil, later!")
+				logrus.Infoln("- CLIENT - received empty frame, later!")
 				break
 			}
 			fmt.Println("[CLIENT::fetch]frame:", frame)
 			if err != nil {
 				if !websocket.IsCloseError(err) && !websocket.IsUnexpectedCloseError(err) {
-					fmt.Println("[CLIENT] error reading json message", err)
+					logrus.Errorf("- CLIENT - error reading json message: %s\n", err)
 				}
 				c.SendErr(errors.New("malformed message"))
 
@@ -104,7 +111,7 @@ func (c *Client) dpatch(in <-chan *RequestFrame) {
 			}
 		}
 		if !resOK {
-			fmt.Println("[CLIENT::dpatch] unkown ressource type", frame.Type)
+			logrus.Errorf("- CLIENT - unkown ressource type %s\n", frame.Type)
 			// send error message
 		}
 
@@ -122,16 +129,18 @@ func (c *Client) dpatch(in <-chan *RequestFrame) {
 		case "unsubscribe":
 			c.Eps.Unsubscribe <- request
 		default:
-			fmt.Println("[CLIENT:dpatch] unkown event type", frame.Event)
+			logrus.Errorf("- CLIENT - unkown event type: %s\n", frame.Event)
 			// send error message: unkown event type
 		}
 	}
 }
 
 func (c *Client) Input() {
+	fmt.Println("client input range")
 	for frame := range c.In {
 		c.Send(frame)
 	}
+	fmt.Println("client input ranged ended")
 }
 
 func (c *Client) Leave() {
@@ -139,6 +148,15 @@ func (c *Client) Leave() {
 	c.Eps.Leave <- c
 	c.mutex.Lock()
 	c.con.Close()
+	c.mutex.Unlock()
+}
+
+func (c *Client) ForceLeave() {
+	logrus.Debugln("- CLIENT - leaving by force...")
+	c.mutex.Lock()
+	// send later message?
+	c.con.Close()
+	c.Done <- struct{}{}
 	c.mutex.Unlock()
 }
 

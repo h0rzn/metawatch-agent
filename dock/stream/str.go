@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -15,9 +16,15 @@ const IntervDur time.Duration = 5 * time.Second
 type Str struct {
 	mutex   *sync.RWMutex
 	Src     io.ReadCloser
-	SrcDone chan struct{}
+	Source  Source
 	Strg    *Storage
-	Quit    chan struct{}
+	closing bool
+}
+
+type Source struct {
+	R     io.ReadCloser
+	Done  chan struct{}
+	Dried chan struct{}
 }
 
 type Storage struct {
@@ -35,7 +42,7 @@ func (st *Storage) AddRcv(interv bool) *Receiver {
 	return r
 }
 
-func (st *Storage) AddLvr(lvrs ...*Receiver) {
+func (st *Storage) Disable(lvrs ...*Receiver) {
 	st.mutex.Lock()
 	for _, lvr := range lvrs {
 		st.Disabled[lvr] = true
@@ -44,11 +51,10 @@ func (st *Storage) AddLvr(lvrs ...*Receiver) {
 }
 
 func (st *Storage) Rm(r *Receiver) {
-	st.mutex.Lock()
-	r.Quit()
+	fmt.Println("rm reciever")
+	r.Close(true)
+	fmt.Println("closed r")
 	delete(st.Receivers, r)
-	delete(st.Disabled, r)
-	st.mutex.Unlock()
 }
 
 func (st *Storage) DisabelAll() {
@@ -64,77 +70,94 @@ func (st *Storage) Cleanup() bool {
 	for rcv := range st.Disabled {
 		st.Rm(rcv)
 	}
+	for dbd := range st.Disabled {
+		delete(st.Disabled, dbd)
+	}
+	empty := len(st.Receivers) == 0
 	st.mutex.Unlock()
-	return len(st.Receivers) == 0
+	return empty
 }
 
 func NewStr(src io.ReadCloser) *Str {
 	return &Str{
-		mutex:   &sync.RWMutex{},
-		Src:     src,
-		SrcDone: make(chan struct{}),
-		Quit:    make(chan struct{}),
+		mutex: &sync.RWMutex{},
+		Source: Source{
+			R:     src,
+			Done:  make(chan struct{}),
+			Dried: make(chan struct{}),
+		},
 		Strg: &Storage{
 			mutex:     &sync.RWMutex{},
 			Receivers: make(map[*Receiver]bool),
 			Disabled:  make(map[*Receiver]bool),
 			LveC:      make(chan *Receiver),
 		},
+		closing: false,
 	}
 }
 
-func (s *Str) Join(interv bool) *Receiver {
-	return s.Strg.AddRcv(interv)
+func (s *Str) Join(interv bool) (*Receiver, error) {
+	if s.closing {
+		return &Receiver{}, errors.New("cant join: streamer closing")
+	}
+	rcv := s.Strg.AddRcv(interv)
+	return rcv, nil
 }
 
-func (s *Str) Close() {
+func (s *Str) Close() error {
 	fmt.Println("closing streamer")
-	s.mutex.Lock()
-	s.SrcDone <- struct{}{}
-	s.mutex.Unlock()
+	s.closing = true
+	s.Source.Done <- struct{}{}
+	for rcv := range s.Strg.Receivers {
+		s.Strg.Rm(rcv)
+	}
+	select {
+	case <-s.Source.Dried:
+		fmt.Println("dry out sig received")
+		return nil
+	case <-time.After(15 * time.Second):
+		return errors.New("data pipeline failed to dry out")
+	}
 }
 
-func (s *Str) Exit() {
-	s.Strg.DisabelAll()
-}
-
-type GenPipe func(r io.ReadCloser, done chan struct{}) <-chan Set
+type GenPipe func(r io.ReadCloser, done chan struct{}, dried chan struct{}) chan Set
 
 func (s *Str) Run(pipe GenPipe) {
-	s.SrcDone = make(chan struct{})
-	sets := pipe(s.Src, s.SrcDone)
+	sets := pipe(s.Source.R, s.Source.Done, s.Source.Dried)
+
 	intervTick := time.NewTicker(IntervDur)
 	logrus.Debugln("- STREAMER - pipeline succesfully built")
 
-	go func() {
-		logrus.Debug("- STREAMER - listening for recvleave")
-		for lvr := range s.Strg.LveC {
-			logrus.Debugln("- STREAMER - handling recv leave")
-			s.Strg.AddLvr(lvr)
-		}
-	}()
-
-	for set := range sets {
-		s.Strg.mutex.Lock()
-		for recv := range s.Strg.Receivers {
-			if recv.Interv {
-				select {
-				case <-intervTick.C:
-					recv.In <- set
-				default:
+	defer logrus.Debugln("- STREAMER - exited")
+	for {
+		select {
+		case lvr := <-s.Strg.LveC:
+			fmt.Println("disabling")
+			s.Strg.Disable(lvr)
+		case set, ok := <-sets:
+			if !ok {
+				if !s.closing {
+					s.Close()
 				}
-			} else {
-				recv.In <- set
+				return
+			}
+			for recv := range s.Strg.Receivers {
+				if recv.Interv {
+					select {
+					case <-intervTick.C:
+						recv.In <- set
+					default:
+					}
+				} else {
+					recv.In <- set
+				}
+			}
+
+			if s.Strg.Cleanup() {
+				fmt.Println("empty: closing")
+				s.Close()
+				return
 			}
 		}
-		s.Strg.mutex.Unlock()
-
-		if s.Strg.Cleanup() {
-			// no receivers left
-			break
-		}
 	}
-
-	s.Close()
-	logrus.Debugln("- STREAMER - exited")
 }

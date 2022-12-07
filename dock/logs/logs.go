@@ -49,7 +49,7 @@ func (l *Logs) Reader() (io.ReadCloser, error) {
 	return r, nil
 }
 
-func (l *Logs) Get(interv bool) *stream.Receiver {
+func (l *Logs) Get(interv bool) (*stream.Receiver, error) {
 	logrus.Infoln("- LOGS - requested receiver")
 	l.mutex.Lock()
 	if l.Streamer == nil {
@@ -80,7 +80,12 @@ func (l *Logs) Cylce() {
 	l.Streamer = nil
 }
 
-func GenPipe(r io.ReadCloser, done chan struct{}) <-chan stream.Set {
+func (l *Logs) Stop() error {
+	logrus.Debugln("- Logs - stopping...")
+	return l.Streamer.Close()
+}
+
+func GenPipe(r io.ReadCloser, done chan struct{}, dried chan struct{}) chan stream.Set {
 	out := make(chan stream.Set)
 	sets := Parse(r, done)
 
@@ -89,6 +94,7 @@ func GenPipe(r io.ReadCloser, done chan struct{}) <-chan stream.Set {
 			out <- set
 		}
 		close(out)
+		dried <- struct{}{}
 	}()
 	return out
 }
@@ -102,7 +108,9 @@ func Parse(r io.ReadCloser, done chan struct{}) <-chan stream.Set {
 
 			select {
 			case <-done:
+				logrus.Debugln("- LOGS - parser: done received")
 				close(out)
+
 				r.Close()
 				return
 			default:
@@ -110,9 +118,7 @@ func Parse(r io.ReadCloser, done chan struct{}) <-chan stream.Set {
 
 			_, err := r.Read(hdr)
 			if err != nil {
-				if err == io.EOF {
-					fmt.Println("eof")
-				}
+				return
 			}
 
 			sizes := binary.BigEndian.Uint32(hdr[4:])

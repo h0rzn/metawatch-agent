@@ -3,7 +3,6 @@ package metrics
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"sync"
 
@@ -35,7 +34,7 @@ func (m *Metrics) Reader() (io.ReadCloser, error) {
 	return r.Body, err
 }
 
-func (m *Metrics) Get(interv bool) *stream.Receiver {
+func (m *Metrics) Get(interv bool) (*stream.Receiver, error) {
 	logrus.Infoln("- METRICS - requested receiver")
 	m.mutex.Lock()
 	if m.Streamer == nil {
@@ -65,18 +64,31 @@ func (m *Metrics) Cylce() {
 	m.Streamer = nil
 }
 
-func GenPipe(r io.ReadCloser, done chan struct{}) <-chan stream.Set {
+func (m *Metrics) Stop() error {
+	logrus.Debugln("- METRICS - stopping...")
+	return m.Streamer.Close()
+}
+
+func GenPipe(r io.ReadCloser, done chan struct{}, dried chan struct{}) chan stream.Set {
 	out := make(chan stream.Set)
 	stats := Parse(r, done)
 
 	go func() {
-		for stat := range stats {
+		for {
+			stat, ok := <-stats
+			if !ok {
+				logrus.Debugln("- METRICS - genpipe: drying out...")
+				close(out)
+				dried <- struct{}{}
+				return
+			}
 			metricSet := NewSetWithJSON(stat)
 			streamSet := stream.NewSet("metric_set", metricSet)
 			out <- *streamSet
 		}
-		fmt.Println("no longer receiving set")
+
 	}()
+
 	return out
 }
 
@@ -88,6 +100,7 @@ func Parse(r io.ReadCloser, done chan struct{}) <-chan types.StatsJSON {
 		for {
 			select {
 			case <-done:
+				logrus.Debugln("- METRICS - parser: done received")
 				close(out)
 				r.Close()
 				return

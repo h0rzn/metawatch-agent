@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"fmt"
+
 	"github.com/h0rzn/monitoring_agent/dock/container"
 	"github.com/h0rzn/monitoring_agent/dock/controller/db"
 	"github.com/h0rzn/monitoring_agent/dock/metrics"
@@ -26,19 +28,27 @@ func NewLink(cid string) *Link {
 	}
 }
 
-func (l *Link) Init(container *container.Container) {
-	l.Metrics = container.Streams.Metrics.Get(true)
+func (l *Link) Init(container *container.Container) error {
+	recv, err := container.Streams.Metrics.Get(true)
+	if err != nil {
+		return err
+	}
+	l.Metrics = recv
+	return nil
 }
 
 func (l *Link) Run() {
 	for {
 		select {
 		case <-l.Done:
-			l.Metrics.Quit()
+			l.Metrics.Close(false)
+			return
+		case <-l.Metrics.Closing:
+			fmt.Println("link receiver closing sig")
 			return
 		case set, ok := <-l.Metrics.In:
 			if !ok {
-				logrus.Error("- LINK - cannot read: channel closed")
+				logrus.Errorln("- LINK - cannot read: channel closed")
 				close(l.Out)
 				return
 			}

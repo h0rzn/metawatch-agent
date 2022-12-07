@@ -64,7 +64,10 @@ func (s *Storage) Add(raw ...types.Container) error {
 
 		s.mutex.Lock()
 		s.Containers[cont] = l
-		l.Init(cont)
+		err = l.Init(cont)
+		if err != nil {
+			return err
+		}
 		go l.Run()
 		s.mutex.Unlock()
 		added = added + 1
@@ -78,12 +81,11 @@ func (s *Storage) Remove(cid string) error {
 	s.mutex.Lock()
 	if container, exists := s.Container(cid); exists {
 
-		s.Containers[container].Done <- struct{}{}
-		container.Streams.Metrics.Streamer.Exit()
-		container.Streams.Logs.Streamer.Exit()
-
+		//s.Containers[container].Done <- struct{}{}
+		container.Stop()
 		delete(s.Containers, container)
 		logrus.Infoln("- STORAGE - container removed")
+		fmt.Printf("len: %d\n", len(s.Containers))
 	} else {
 		fmt.Printf("cid: %s doesnt exist\n", cid)
 	}
@@ -113,7 +115,7 @@ func (s *Storage) JSONSkel() []*container.ContainerJSON {
 func (s *Storage) Links() {
 	for {
 		data := []interface{}{}
-		// s.mutex.RLock()
+		s.mutex.RLock()
 		for _, link := range s.Containers {
 			dbSet, more := <-link.Out
 			if !more {
@@ -121,10 +123,11 @@ func (s *Storage) Links() {
 			}
 			data = append(data, dbSet)
 		}
-		// s.mutex.RUnlock()
-		logrus.Infof("- STORAGE - sending %d collected sets\n", len(data))
-
-		s.DB.Client.BulkWrite(data)
+		s.mutex.RUnlock()
+		if len(data) > 0 {
+			logrus.Debugf("- STORAGE - sending %d collected sets\n", len(data))
+			s.DB.Client.BulkWrite(data)
+		}
 
 	}
 }

@@ -12,7 +12,7 @@ type Ressource struct {
 	mutex       *sync.RWMutex
 	ContainerID string
 	Event       string
-	Data        *stream.Receiver
+	DataRcv     *stream.Receiver
 	Receivers   []*Client
 }
 
@@ -27,21 +27,25 @@ func NewRessource(cid string, event string, receiver *Client) *Ressource {
 }
 
 func (r *Ressource) SetStreamer(container *container.Container) {
+	var rcv *stream.Receiver
+	var err error
+
 	switch r.Event {
 	case "logs":
-		r.Data = container.Streams.Logs.Get(false)
-		logrus.Infof("- RESSOURCE - logs.recv created\n", r.Data)
+		rcv, err = container.Streams.Logs.Get(false)
+		logrus.Infoln("- RESSOURCE - logs.recv created\n")
 	case "metrics":
-		r.Data = container.Streams.Metrics.Get(false)
-		logrus.Infof("- RESSOURCE - metrics.recv created\n", r.Data)
+		rcv, err = container.Streams.Metrics.Get(false)
+		logrus.Infoln("- RESSOURCE - metrics.recv created\n")
 	default:
 		logrus.Errorf("- RESSOURCE - ressource init unkown event type: %s\n", r.Event)
 		// remove failed ressource
 		return
 	}
-	if r.Data == nil {
-		logrus.Errorf("- RESSOURCE - failed create %s receiver\n", r.Event)
+	if err != nil {
+		logrus.Errorf("- RESSOURCE - failed create %s receiver: %s\n", r.Event, err)
 	}
+	r.DataRcv = rcv
 }
 
 func (r *Ressource) ClientIdx(c *Client) int {
@@ -57,6 +61,7 @@ func (r *Ressource) RemoveClient(c *Client) {
 	r.mutex.Lock()
 	idx := r.ClientIdx(c)
 	if idx != -1 {
+		c.Done <- struct{}{}
 		r.Receivers[idx] = &Client{}
 
 		// remove receiver
@@ -64,12 +69,16 @@ func (r *Ressource) RemoveClient(c *Client) {
 		logrus.Debugln("- RESSOURCE - client removed\n")
 
 	} else {
-		logrus.Warnln("- RESSOURCE-   client remove: client not found %d\n", idx)
+		logrus.Warnln("- RESSOURCE -   client remove: client not found %d\n", idx)
 	}
 	r.mutex.Unlock()
 }
 
 func (r *Ressource) Quit() {
 	logrus.Info("- RESSOURCE - quit")
-	r.Data.Quit()
+	r.mutex.Lock()
+	for _, client := range r.Receivers {
+		client.ForceLeave()
+	}
+	r.mutex.Unlock()
 }

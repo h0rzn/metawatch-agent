@@ -29,6 +29,9 @@ func (c *Client) Init() (err error) {
 		return
 	}
 	logrus.Info("- DB::Client - connection successful")
+
+	// ping con
+
 	// defer func() {
 	// 	if err := client.Disconnect(context.TODO()); err != nil {
 	// 		panic(err)
@@ -40,6 +43,9 @@ func (c *Client) Init() (err error) {
 }
 
 func (c *Client) BulkWrite(data []interface{}) {
+	if len(data) == 0 {
+		return
+	}
 	col := c.Mongo.Database("metawatch").Collection("metrics")
 	ctx := context.Background()
 	res, err := col.InsertMany(ctx, data)

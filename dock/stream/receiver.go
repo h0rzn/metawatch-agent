@@ -4,21 +4,27 @@ import "github.com/sirupsen/logrus"
 
 type Receiver struct {
 	// interval streamer
-	Interv bool
-	In     chan Set
-	Leave  chan *Receiver
+	Interv  bool
+	In      chan Set
+	Leave   chan *Receiver
+	Closing chan struct{}
 }
 
-func NewReceiver(interv bool, leaver chan *Receiver) *Receiver {
+func NewReceiver(interv bool, leave chan *Receiver) *Receiver {
 	return &Receiver{
-		Interv: interv,
-		In:     make(chan Set),
-		Leave:  leaver,
+		Interv:  interv,
+		In:      make(chan Set),
+		Leave:   leave,
+		Closing: make(chan struct{}),
 	}
 }
 
-func (recv *Receiver) Quit() {
-	logrus.Debugln("- RECEIVER - quit")
-	//close(recv.In)
-	recv.Leave <- recv
+func (recv *Receiver) Close(byStreamer bool) {
+	logrus.Debugln("- RECEIVER - close")
+	if byStreamer {
+		logrus.Debugln("- RECEIVER - send closing sig to consumers")
+		recv.Closing <- struct{}{}
+	} else {
+		recv.Leave <- recv
+	}
 }
