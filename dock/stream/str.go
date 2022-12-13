@@ -6,8 +6,6 @@ import (
 	"io"
 	"sync"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
 // ticker duration for interv receivers
@@ -16,25 +14,19 @@ const IntervDur time.Duration = 5 * time.Second
 type Str struct {
 	mutex   *sync.RWMutex
 	Src     io.ReadCloser
-	Source  Source
+	Pipe    Pipeline
 	Strg    *Storage
-	closing bool
-}
-
-type Source struct {
-	R     io.ReadCloser
-	Done  chan struct{}
-	Dried chan struct{}
+	Closing bool
+	Closed  chan error
 }
 
 type Storage struct {
 	mutex     *sync.RWMutex
 	Receivers map[*Receiver]bool
-	Disabled  map[*Receiver]bool
 	LveC      chan *Receiver
 }
 
-func (st *Storage) AddRcv(interv bool) *Receiver {
+func (st *Storage) Add(interv bool) *Receiver {
 	r := NewReceiver(interv, st.LveC)
 	st.mutex.Lock()
 	st.Receivers[r] = true
@@ -42,122 +34,82 @@ func (st *Storage) AddRcv(interv bool) *Receiver {
 	return r
 }
 
-func (st *Storage) Disable(lvrs ...*Receiver) {
+func (st *Storage) Cls(rcv *Receiver) {
 	st.mutex.Lock()
-	for _, lvr := range lvrs {
-		st.Disabled[lvr] = true
+	if _, exists := st.Receivers[rcv]; exists {
+		rcv.Close(true)
+		close(rcv.In)
+		delete(st.Receivers, rcv)
 	}
 	st.mutex.Unlock()
 }
 
-func (st *Storage) Rm(r *Receiver) {
-	fmt.Println("rm reciever")
-	r.Close(true)
-	fmt.Println("closed r")
-	delete(st.Receivers, r)
-}
-
-func (st *Storage) DisabelAll() {
-	st.mutex.Lock()
-	for rcv := range st.Receivers {
-		st.Disabled[rcv] = true
-	}
-	st.mutex.Unlock()
-}
-
-func (st *Storage) Cleanup() bool {
-	st.mutex.Lock()
-	for rcv := range st.Disabled {
-		st.Rm(rcv)
-	}
-	for dbd := range st.Disabled {
-		delete(st.Disabled, dbd)
-	}
-	empty := len(st.Receivers) == 0
-	st.mutex.Unlock()
-	return empty
-}
-
-func NewStr(src io.ReadCloser) *Str {
+func NewStr(pipeline Pipeline) *Str {
 	return &Str{
 		mutex: &sync.RWMutex{},
-		Source: Source{
-			R:     src,
-			Done:  make(chan struct{}),
-			Dried: make(chan struct{}),
-		},
+		Pipe:  pipeline,
 		Strg: &Storage{
 			mutex:     &sync.RWMutex{},
 			Receivers: make(map[*Receiver]bool),
-			Disabled:  make(map[*Receiver]bool),
 			LveC:      make(chan *Receiver),
 		},
-		closing: false,
+		Closing: false,
 	}
 }
 
 func (s *Str) Join(interv bool) (*Receiver, error) {
-	if s.closing {
+	if s.Closing {
 		return &Receiver{}, errors.New("cant join: streamer closing")
 	}
-	rcv := s.Strg.AddRcv(interv)
+	rcv := s.Strg.Add(interv)
 	return rcv, nil
 }
 
-func (s *Str) Close() error {
-	fmt.Println("closing streamer")
-	s.closing = true
-	s.Source.Done <- struct{}{}
-	for rcv := range s.Strg.Receivers {
-		s.Strg.Rm(rcv)
-	}
-	select {
-	case <-s.Source.Dried:
-		fmt.Println("dry out sig received")
-		return nil
-	case <-time.After(15 * time.Second):
-		return errors.New("data pipeline failed to dry out")
-	}
+func (s *Str) Cls() <-chan error {
+	closed := make(chan error, 1)
+	s.Closing = true
+
+	go func() {
+		s.Pipe.Stop()
+		for r := range s.Strg.Receivers {
+			s.Strg.Cls(r)
+		}
+		fmt.Println("closed all receivers")
+		close(s.Strg.LveC)
+		closed <- nil
+		fmt.Println("closed")
+	}()
+
+	return closed
 }
 
-type GenPipe func(r io.ReadCloser, done chan struct{}, dried chan struct{}) chan Set
+func (s *Str) Run() {
+	data := s.Pipe.Out()
 
-func (s *Str) Run(pipe GenPipe) {
-	sets := pipe(s.Source.R, s.Source.Done, s.Source.Dried)
-
-	intervTick := time.NewTicker(IntervDur)
-	logrus.Debugln("- STREAMER - pipeline succesfully built")
-
-	defer logrus.Debugln("- STREAMER - exited")
-	for {
-		select {
-		case lvr := <-s.Strg.LveC:
-			fmt.Println("disabling")
-			s.Strg.Disable(lvr)
-		case set, ok := <-sets:
-			if !ok {
-				if !s.closing {
-					s.Close()
-				}
-				return
+	go func() {
+		for lvr := range s.Strg.LveC {
+			if s.Closing {
+				continue
 			}
-			for recv := range s.Strg.Receivers {
-				if recv.Interv {
-					select {
-					case <-intervTick.C:
-						recv.In <- set
-					default:
-					}
-				} else {
-					recv.In <- set
-				}
+			fmt.Println("str: handling leaver")
+			s.Strg.Cls(lvr)
+
+			if len(s.Strg.Receivers) == 0 {
+				fmt.Println("no receivers left")
 			}
 
-			if s.Strg.Cleanup() {
-				fmt.Println("empty: closing")
-				s.Close()
-				return
+		}
+	}()
+
+	for set := range data {
+		for recv := range s.Strg.Receivers {
+			// send if channel is empty
+			select {
+			case recv.In <- set:
+			default:
 			}
 		}
 	}
+	// we can exit now
+
 }

@@ -24,19 +24,8 @@ func NewController() (ctr *Controller, err error) {
 }
 
 func (ctr *Controller) Init() error {
-	rawTypes, err := ctr.Storage.Discover()
-	if err != nil {
-		return err
-	}
-	err = ctr.Storage.Add(rawTypes...)
-	if err != nil {
-		return err
-	}
-	go ctr.Storage.Links()
-
-	err = ctr.Storage.DB.Init()
-
-	logrus.Infoln("- CONTROLLER - started")
+	logrus.Infoln("- CONTROLLER - starting")
+	err := ctr.Storage.Init()
 	return err
 }
 

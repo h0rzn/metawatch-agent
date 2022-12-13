@@ -2,11 +2,11 @@ package logs
 
 import (
 	"context"
-	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
-	"strings"
 	"sync"
+	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
@@ -70,71 +70,31 @@ func (l *Logs) InitStr() (err error) {
 		return
 	}
 
-	l.Streamer = stream.NewStr(r)
-	go l.Cylce()
+	pipe := NewPipeline(r)
+	l.Streamer = stream.NewStr(pipe)
+	go l.Streamer.Run()
 	return
 }
 
-func (l *Logs) Cylce() {
-	l.Streamer.Run(GenPipe)
-	l.Streamer = nil
-}
-
 func (l *Logs) Stop() error {
-	logrus.Debugln("- Logs - stopping...")
-	return l.Streamer.Close()
-}
+	logrus.Debugln("- LOGS - stopping...")
+	if l.Streamer == nil {
+		return nil
+	}
 
-func GenPipe(r io.ReadCloser, done chan struct{}, dried chan struct{}) chan stream.Set {
-	out := make(chan stream.Set)
-	sets := Parse(r, done)
+	clsErr := l.Streamer.Cls()
 
-	go func() {
-		for set := range sets {
-			out <- set
+	// handle closing error
+	select {
+	case err := <-clsErr:
+		if err != nil {
+			logrus.Errorf("- LOGS - streamer close err: %s\n", err)
 		}
-		close(out)
-		dried <- struct{}{}
-	}()
-	return out
-}
-
-func Parse(r io.ReadCloser, done chan struct{}) <-chan stream.Set {
-	out := make(chan stream.Set)
-
-	go func() {
-		for {
-			hdr := make([]byte, 8)
-
-			select {
-			case <-done:
-				logrus.Debugln("- LOGS - parser: done received")
-				close(out)
-
-				r.Close()
-				return
-			default:
-			}
-
-			_, err := r.Read(hdr)
-			if err != nil {
-				return
-			}
-
-			sizes := binary.BigEndian.Uint32(hdr[4:])
-			content := make([]byte, sizes)
-			_, err = r.Read(content)
-			if err != nil && err != io.EOF {
-				//errChan <- err
-				fmt.Println(err)
-			}
-			time, data, found := strings.Cut(string(content), " ")
-			if found {
-				entry := NewEntry(time, data, hdr[0])
-				set := stream.NewSet("log_entry", entry)
-				out <- *set
-			}
-		}
-	}()
-	return out
+		fmt.Println("metrics closed")
+		l.Streamer = nil
+		return err
+	case <-time.After(10 * time.Second):
+		l.Streamer = nil
+		return errors.New("logs stop timeout")
+	}
 }

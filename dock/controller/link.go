@@ -42,9 +42,11 @@ func (l *Link) Run() {
 		select {
 		case <-l.Done:
 			l.Metrics.Close(false)
+			close(l.Out)
 			return
 		case <-l.Metrics.Closing:
 			fmt.Println("link receiver closing sig")
+			close(l.Out)
 			return
 		case set, ok := <-l.Metrics.In:
 			if !ok {

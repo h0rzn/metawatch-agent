@@ -4,16 +4,19 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
 )
 
+var allowedTypes = [2]string{"metrics", "logs"}
+
 // RequestFrame is a message holder for client messages/requests
 type RequestFrame struct {
 	CID   string `json:"container_id"`
-	Event string `json:"event"`
-	Type  string `json:"type"`
+	Event string `json:"event"` // eg subscribe
+	Type  string `json:"type"`  // eg metrics
 }
 
 // ResponseFrame is a message holder for server responses
@@ -29,6 +32,9 @@ type Client struct {
 	Eps        *Endpoints
 	In         chan *ResponseFrame
 	Done       chan struct{}
+	inputDone  chan struct{}
+	fetchDone  chan struct{}
+	finished   chan struct{}
 	AllowedRes []string
 }
 
@@ -44,6 +50,9 @@ func NewClient(con *websocket.Conn, eps *Endpoints) *Client {
 		Eps:        eps,
 		In:         make(chan *ResponseFrame),
 		Done:       make(chan struct{}),
+		inputDone:  make(chan struct{}),
+		fetchDone:  make(chan struct{}),
+		finished:   make(chan struct{}),
 		AllowedRes: allowed,
 	}
 }
@@ -57,21 +66,41 @@ type Demand struct {
 
 func (c *Client) Handle() {
 	go c.Input()
-	done := make(chan struct{})
-	input := c.fetch(c.con, done)
-	go c.dpatch(input)
-	<-c.Done
 
-	done <- struct{}{}
-	c.Leave()
+	input := c.fetch(c.con)
+	go c.dpatch(input)
+	logrus.Infoln("- CLIENT - handling...")
 }
 
-func (c *Client) fetch(con *websocket.Conn, done chan struct{}) <-chan *RequestFrame {
+func (c *Client) Close() error {
+	logrus.Infoln("- CLIENT - closing...")
+	c.fetchDone <- struct{}{}
+	c.inputDone <- struct{}{}
+
+	select {
+	case <-c.finished:
+		logrus.Debugln("- CLIENT - finished closing")
+		return nil
+	case <-time.After(8 * time.Second):
+		return errors.New("timeout: pipeline couldnt finish")
+	}
+}
+
+func (c *Client) typOK(typ string) (found bool) {
+	for _, allowed := range allowedTypes {
+		if allowed == typ {
+			return true
+		}
+	}
+	return
+}
+
+func (c *Client) fetch(con *websocket.Conn) <-chan *RequestFrame {
 	out := make(chan *RequestFrame)
 	go func() {
 		for {
 			select {
-			case <-done:
+			case <-c.fetchDone:
 				logrus.Debugln("- CLIENT - received done signal")
 				close(out)
 				return
@@ -96,23 +125,16 @@ func (c *Client) fetch(con *websocket.Conn, done chan struct{}) <-chan *RequestF
 				out <- frame
 			}
 		}
-		close(out)
 	}()
 	return out
 }
 
 func (c *Client) dpatch(in <-chan *RequestFrame) {
 	for frame := range in {
-		// validate ressource type
-		resOK := false
-		for _, res := range c.AllowedRes {
-			if frame.Type == res {
-				resOK = true
-			}
-		}
-		if !resOK {
+		if !c.typOK(frame.Type) {
 			logrus.Errorf("- CLIENT - unkown ressource type %s\n", frame.Type)
-			// send error message
+			// just continue for now
+			continue
 		}
 
 		// create hub demand
@@ -133,14 +155,24 @@ func (c *Client) dpatch(in <-chan *RequestFrame) {
 			// send error message: unkown event type
 		}
 	}
+	fmt.Println("dpatch finished")
 }
 
 func (c *Client) Input() {
 	fmt.Println("client input range")
-	for frame := range c.In {
-		c.Send(frame)
+	for {
+		select {
+		case <-c.inputDone:
+			fmt.Println("client: closing input")
+			return
+		case frame, ok := <-c.In:
+			if !ok {
+				c.finished <- struct{}{}
+				return
+			}
+			c.Send(frame)
+		}
 	}
-	fmt.Println("client input ranged ended")
 }
 
 func (c *Client) Leave() {

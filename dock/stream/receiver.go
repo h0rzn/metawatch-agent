@@ -1,6 +1,8 @@
 package stream
 
-import "github.com/sirupsen/logrus"
+import (
+	"github.com/sirupsen/logrus"
+)
 
 type Receiver struct {
 	// interval streamer
@@ -13,18 +15,25 @@ type Receiver struct {
 func NewReceiver(interv bool, leave chan *Receiver) *Receiver {
 	return &Receiver{
 		Interv:  interv,
-		In:      make(chan Set),
+		In:      make(chan Set, 1),
 		Leave:   leave,
-		Closing: make(chan struct{}),
+		Closing: make(chan struct{}, 1),
 	}
 }
 
+// Quit handles intrinsic motivated leave
+func (recv *Receiver) Quit() {
+	logrus.Debugln("- RECEIVER - close (by choice)")
+	recv.Leave <- recv
+}
+
 func (recv *Receiver) Close(byStreamer bool) {
-	logrus.Debugln("- RECEIVER - close")
+	logrus.Debugln("- RECEIVER - close (by force)")
 	if byStreamer {
-		logrus.Debugln("- RECEIVER - send closing sig to consumers")
 		recv.Closing <- struct{}{}
-	} else {
-		recv.Leave <- recv
 	}
+}
+
+func (recv *Receiver) ConfirmCls() {
+	
 }

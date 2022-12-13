@@ -38,13 +38,19 @@ func (ev *Events) Run() {
 
 func (ev *Events) onStop(e events.Message) {
 	// check if container is indexed
-	ev.Strg.Remove(e.ID)
+	err := ev.Strg.Remove(e.ID)
+	if err != nil {
+		logrus.Errorf("- EVENTS - failed to handle stop event: %s\n", err)
+	} else {
+		logrus.Infoln("- EVENTS - succesfully removed container based on [stop]")
+	}
 }
 
 func (ev *Events) onStart(e events.Message) {
 	// get cid
 	// query containers with filter
 	// create new container
+
 }
 
 // https://docs.docker.com/engine/reference/commandline/events/

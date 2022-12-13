@@ -2,11 +2,12 @@ package metrics
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"sync"
+	"time"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/h0rzn/monitoring_agent/dock/stream"
 	"github.com/sirupsen/logrus"
@@ -53,68 +54,27 @@ func (m *Metrics) InitStr() (err error) {
 	if err != nil {
 		return
 	}
-
-	m.Streamer = stream.NewStr(r)
-	go m.Cylce()
+	pipe := NewPipeline(r)
+	m.Streamer = stream.NewStr(pipe)
+	go m.Streamer.Run()
 	return
-}
-
-func (m *Metrics) Cylce() {
-	m.Streamer.Run(GenPipe)
-	m.Streamer = nil
 }
 
 func (m *Metrics) Stop() error {
 	logrus.Debugln("- METRICS - stopping...")
-	return m.Streamer.Close()
-}
+	clsErr := m.Streamer.Cls()
 
-func GenPipe(r io.ReadCloser, done chan struct{}, dried chan struct{}) chan stream.Set {
-	out := make(chan stream.Set)
-	stats := Parse(r, done)
-
-	go func() {
-		for {
-			stat, ok := <-stats
-			if !ok {
-				logrus.Debugln("- METRICS - genpipe: drying out...")
-				close(out)
-				dried <- struct{}{}
-				return
-			}
-			metricSet := NewSetWithJSON(stat)
-			streamSet := stream.NewSet("metric_set", metricSet)
-			out <- *streamSet
+	// handle closing error
+	select {
+	case err := <-clsErr:
+		if err != nil {
+			logrus.Errorf("- METRICS - streamer close err: %s\n", err)
 		}
-
-	}()
-
-	return out
-}
-
-func Parse(r io.ReadCloser, done chan struct{}) <-chan types.StatsJSON {
-	out := make(chan types.StatsJSON)
-	dec := json.NewDecoder(r)
-
-	go func() {
-		for {
-			select {
-			case <-done:
-				logrus.Debugln("- METRICS - parser: done received")
-				close(out)
-				r.Close()
-				return
-			default:
-			}
-			var stat types.StatsJSON
-			err := dec.Decode(&stat)
-			if err != nil {
-				logrus.Warnln("- METRICS - error while decoding, exit parser...")
-				return
-			}
-			out <- stat
-		}
-
-	}()
-	return out
+		fmt.Println("metrics closed")
+		m.Streamer = nil
+		return err
+	case <-time.After(10 * time.Second):
+		m.Streamer = nil
+		return errors.New("metrics stop timeout")
+	}
 }

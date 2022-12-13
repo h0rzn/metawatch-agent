@@ -1,7 +1,6 @@
 package hub
 
 import (
-	"fmt"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -45,40 +44,9 @@ func (h *Hub) CreateClient(con *websocket.Conn) *Client {
 }
 
 func (h *Hub) HandleRessource(container *container.Container, r *Ressource) {
-	logrus.Infof("- HUB - handling ressource receiver for %d receivers\n", len(r.Receivers))
-
-	r.SetStreamer(container)
-	for {
-		select {
-		case <-r.DataRcv.Closing:
-			fmt.Println("ressource: receiver forced to close...")
-			r.Quit()
-		case set, more := <-r.DataRcv.In:
-			if more && len(r.Receivers) > 0 {
-				logrus.Debugf("- HUB - handling ressource set for %d receivers\n", len(r.Receivers))
-				frame := &ResponseFrame{
-					CID:     r.ContainerID,
-					Type:    r.Event,
-					Content: set.Data,
-				}
-				h.mutex.RLock()
-				for idx := range r.Receivers {
-					r.Receivers[idx].In <- frame
-				}
-				h.mutex.RUnlock()
-
-				if len(r.Receivers) == 0 {
-					break
-				}
-			} else {
-				fmt.Println("hub res quit and remove")
-				r.Quit()
-				h.RemoveRessource(container, r)
-				return
-			}
-		}
-
-	}
+	logrus.Infoln("- HUB - handling ressource")
+	<-r.Handle()
+	h.RemoveRessource(container, r)
 }
 
 func (h *Hub) RemoveRessource(c *container.Container, r *Ressource) {
@@ -99,24 +67,19 @@ func (h *Hub) RemoveRessource(c *container.Container, r *Ressource) {
 
 func (h *Hub) Subscribe(dem *Demand) {
 	logrus.Infof("- HUB - subscribing: res:%s cid:%s\n", dem.Ressource, dem.CID)
-	container, exists := h.Ctr.Container(dem.CID)
+	_, exists := h.Ctr.Container(dem.CID)
 	if !exists {
 		logrus.Errorf("- HUB - container %s not found\n", dem.CID)
 		return
 	}
 
-	res, exists := h.Ressource(dem.CID, dem.Ressource)
 	h.mutex.Lock()
+	res, exists := h.Ressource(dem.CID, dem.Ressource)
 	if !exists {
-		logrus.Info("[HUB] creating new ressource")
-		// create new ressource
-		r := NewRessource(dem.CID, dem.Ressource, dem.Client)
-		h.Ressources[container] = append(h.Ressources[container], r)
-		go h.HandleRessource(container, r)
-	} else {
-		logrus.Info("[HUB] ressource found, adding client")
-		res.Receivers = append(res.Receivers, dem.Client)
+		logrus.Errorf("- HUB - ressource for %s not found\n", res.ContainerID)
+		return
 	}
+	res.Add <- dem.Client
 	h.mutex.Unlock()
 }
 
@@ -129,16 +92,21 @@ func (h *Hub) Unsubscribe(dem *Demand) {
 
 	res, exists := h.Ressource(dem.CID, dem.Ressource)
 	if exists {
-		for i := range res.Receivers {
-			if res.Receivers[i] == dem.Client {
-				res.RemoveClient(dem.Client)
-				// quit receiver
-				return
-			}
-
-		}
+		res.Rm <- dem.Client
 	}
 
+}
+
+func (h *Hub) CreateRessource(cid, typ string) {
+	r := NewRessource(cid, typ)
+	container, exists := h.Ctr.Container(cid)
+	if !exists {
+		logrus.Errorf("- HUB - container %s not found\n", cid)
+		return
+	}
+	h.Ressources[container] = append(h.Ressources[container], r)
+	r.SetStreamer(container)
+	go h.HandleRessource(container, r)
 }
 
 func (h *Hub) Ressource(cid string, event string) (r *Ressource, exists bool) {
@@ -160,8 +128,7 @@ func (h *Hub) Ressource(cid string, event string) (r *Ressource, exists bool) {
 func (h *Hub) ClientLeave(c *Client) {
 	for _, ressources := range h.Ressources {
 		for _, res := range ressources {
-			res.RemoveClient(c)
-			logrus.Infof("- HUB - removed client: %d left\n", len(res.Receivers))
+			res.Rm <- c
 		}
 	}
 }
@@ -172,6 +139,9 @@ func (h *Hub) Run() {
 	for {
 		select {
 		case dem := <-h.Eps.Subscribe:
+			if _, exists := h.Ressource(dem.CID, dem.Ressource); !exists {
+				h.CreateRessource(dem.CID, dem.Ressource)
+			}
 			h.Subscribe(dem)
 		case dem := <-h.Eps.Unsubscribe:
 			h.Unsubscribe(dem)
