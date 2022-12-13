@@ -62,6 +62,9 @@ func (m *Metrics) InitStr() (err error) {
 
 func (m *Metrics) Stop() error {
 	logrus.Debugln("- METRICS - stopping...")
+	if m.Streamer == nil {
+		return nil
+	}
 	clsErr := m.Streamer.Cls()
 
 	// handle closing error
