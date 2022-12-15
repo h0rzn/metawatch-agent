@@ -21,6 +21,7 @@ type Container struct {
 	Names   []string
 	Image   string
 	State   State
+	Ports   []string
 	Streams Streams
 	c       *client.Client
 }
@@ -92,14 +93,22 @@ type ContainerJSON struct {
 	Names   []string     `json:"names"`
 	Image   string       `json:"image"`
 	State   State        `json:"state"`
+	Ports   []string     `json:"ports"`
 	Metrics *metrics.Set `json:"metrics"`
 }
 
 func NewContainer(raw types.Container, c *client.Client, feedOut chan interface{}) *Container {
+	ports := make([]string, 0)
+	for _, p := range raw.Ports {
+		pFmt := fmt.Sprintf("%s:%d->%d/%s", p.IP, p.PublicPort, p.PrivatePort, p.Type)
+		ports = append(ports, pFmt)
+	}
+
 	return &Container{
 		ID:    raw.ID,
 		Names: raw.Names,
 		Image: raw.Image,
+		Ports: ports,
 		Streams: Streams{
 			Metrics:    metrics.NewMetrics(c, raw.ID),
 			Logs:       logs.NewLogs(c, raw.ID),
@@ -173,6 +182,7 @@ func (cont *Container) JSONSkel() *ContainerJSON {
 		Names:   cont.Names,
 		Image:   cont.Image,
 		State:   cont.State,
+		Ports:   cont.Ports,
 		Metrics: &currentMetrics,
 	}
 }
