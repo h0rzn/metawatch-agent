@@ -3,17 +3,17 @@ package metrics
 import (
 	"encoding/json"
 	"io"
-	"time"
 
 	"github.com/docker/docker/api/types"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type Set struct {
-	When string `json:"when"`
-	CPU  CPU    `json:"cpu"`
-	Mem  Memory `json:"memory"`
-	Disk Disk   `json:"disk"`
-	Net  Net    `json:"net"`
+	When primitive.DateTime `json:"when" bson:"-"`
+	CPU  CPU                `json:"cpu" bson:"cpu,inline"`
+	Mem  Memory             `json:"memory" bson:"mem,inline"`
+	Disk Disk               `json:"disk" bson:"disk,inline"`
+	Net  Net                `json:"net" bson:"net,inline"`
 }
 
 func NewSet(r io.Reader) Set {
@@ -26,7 +26,7 @@ func NewSet(r io.Reader) Set {
 
 func NewSetWithJSON(stats types.StatsJSON) Set {
 	return Set{
-		When: stats.Read.Format(time.RFC3339Nano),
+		When: primitive.NewDateTimeFromTime(stats.Read), //stats.Read.Format(time.RFC3339Nano),
 		CPU:  *NewCPU(stats.PreCPUStats, stats.CPUStats),
 		Mem:  *NewMem(stats.MemoryStats),
 		Disk: *NewDisk(stats.BlkioStats),

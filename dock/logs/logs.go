@@ -6,32 +6,31 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/h0rzn/monitoring_agent/dock/stream"
+	"github.com/sirupsen/logrus"
 )
 
-// Logs implements stream.Director interface
 type Logs struct {
-	mutex    sync.Mutex
-	C        *client.Client
+	mutex    *sync.Mutex
+	Streamer *stream.Str
+	client   *client.Client
 	CID      string
-	Streamer stream.Streamer
-	Done     chan struct{}
 }
 
 func NewLogs(c *client.Client, cid string) *Logs {
 	return &Logs{
-		mutex: sync.Mutex{},
-		C:     c,
-		CID:   cid,
-		Done:  make(chan struct{}),
+		mutex:    &sync.Mutex{},
+		Streamer: nil,
+		client:   c,
+		CID:      cid,
 	}
 }
 
-// Source fetches new logs reader
-func (l *Logs) Source() (io.Reader, error) {
+func (l *Logs) Reader() (io.ReadCloser, error) {
 	ctx := context.Background()
 	opts := types.ContainerLogsOptions{
 		ShowStdout: true,
@@ -43,45 +42,59 @@ func (l *Logs) Source() (io.Reader, error) {
 		Tail:   "0",
 	}
 
-	r, err := l.C.ContainerLogs(ctx, l.CID, opts)
+	r, err := l.client.ContainerLogs(ctx, l.CID, opts)
 	if err != nil {
 		return r, err
 	}
 	return r, nil
 }
 
-// Subscribe returns new Subscriber
-// if streamer is nil, a new streamer will be created in addition
-func (l *Logs) Subscribe() (stream.Subscriber, error) {
+func (l *Logs) Get(interv bool) (*stream.Receiver, error) {
+	logrus.Infoln("- LOGS - requested receiver")
 	l.mutex.Lock()
 	if l.Streamer == nil {
-		r, err := l.Source()
+		err := l.InitStr()
 		if err != nil {
-			return &stream.TempSub{}, errors.New("error creating log reader")
+			logrus.Errorln("- LOGS - failed to get receiver")
 		}
-		l.Streamer = NewStreamer(r)
-		go l.Streamer.Run()
 	}
-
 	l.mutex.Unlock()
-	return l.Streamer.Subscribe(), nil
+
+	return l.Streamer.Join(interv)
 }
 
-// Stream returns the log entries respectively as a set through a returned channel
-func (l *Logs) Stream(done chan struct{}) chan *stream.Set {
-	fmt.Println("requesting log stream")
-
-	out := make(chan *stream.Set)
-	sub, err := l.Subscribe()
+func (l *Logs) InitStr() (err error) {
+	r, err := l.Reader()
 	if err != nil {
-		fmt.Println("failed to subscribe to logs")
+		logrus.Errorln("- LOGS - error initing streamer")
+		return
 	}
 
-	go func() {
-		go sub.Handle(out)
-		<-done
-		l.Streamer.Unsubscribe(sub)
-	}()
+	pipe := NewPipeline(r)
+	l.Streamer = stream.NewStr(pipe)
+	go l.Streamer.Run()
+	return
+}
 
-	return out
+func (l *Logs) Stop() error {
+	logrus.Debugln("- LOGS - stopping...")
+	if l.Streamer == nil {
+		return nil
+	}
+
+	clsErr := l.Streamer.Cls()
+
+	// handle closing error
+	select {
+	case err := <-clsErr:
+		if err != nil {
+			logrus.Errorf("- LOGS - streamer close err: %s\n", err)
+		}
+		fmt.Println("metrics closed")
+		l.Streamer = nil
+		return err
+	case <-time.After(10 * time.Second):
+		l.Streamer = nil
+		return errors.New("logs stop timeout")
+	}
 }

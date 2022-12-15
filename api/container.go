@@ -3,9 +3,10 @@ package api
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/h0rzn/monitoring_agent/dock"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type KeepAliveMsg struct {
@@ -14,37 +15,56 @@ type KeepAliveMsg struct {
 
 func (api *API) Container(ctx *gin.Context) {
 	id := ctx.Param("id")
-	container := api.Controller.Container(id)
-	if container == (&dock.Container{}) {
+	cont, exists := api.Controller.Container(id)
+	if !exists {
 		HttpErr(ctx, http.StatusNotFound, errors.New("container not found"))
 	}
-	json, err := container.MarshalJSON()
-	if err != nil {
-		HttpErr(ctx, http.StatusNotFound, errors.New("failed to marshal container"))
-	}
-	ctx.Data(http.StatusOK, "application/json; charset=utf-8", json)
+	json := cont.JSONSkel()
+	ctx.JSON(http.StatusOK, json)
 }
 
 func (api *API) Containers(ctx *gin.Context) {
-	b, err := api.Controller.Containers.MarshalJSON()
-	if err != nil {
-		HttpErr(ctx, http.StatusInternalServerError, errors.New("failed to fetch containers"))
+	json := api.Controller.Storage.JSONSkel()
+	ctx.JSON(http.StatusOK, json)
+}
+
+func (api *API) Metrics(ctx *gin.Context) {
+	id := ctx.Param("id")
+	query := ctx.Request.URL.Query()
+
+	if query.Get("from") == "" || query.Get("to") == "" {
+		HttpErr(ctx, http.StatusBadRequest, errors.New("from=x and to=x required"))
 		return
 	}
-	ctx.Data(http.StatusOK, "application/json; charset=utf-8", b)
+
+	// 2022-12-15T13:00:00Z
+	layout := time.RFC3339Nano
+	tmin, err := time.Parse(layout, query.Get("from"))
+	if err != nil || tmin.IsZero() {
+		HttpErr(ctx, http.StatusBadRequest, err)
+		return
+	}
+
+	tmax, err := time.Parse(layout, query.Get("to"))
+	if err != nil || tmax.IsZero() {
+		HttpErr(ctx, http.StatusBadRequest, err)
+		return
+	}
+
+	tminP := primitive.NewDateTimeFromTime(tmin)
+	tmaxP := primitive.NewDateTimeFromTime(tmax)
+
+	result := api.Controller.Storage.DB.Metrics(id, tminP, tmaxP)
+	// fmt.Println(result[id])
+
+	ctx.JSON(http.StatusOK, result[id])
 }
 
-func (api *API) ContainerMetrics(ctx *gin.Context) {
-	id := ctx.Param("id")
-	api.metricsWS(ctx.Writer, ctx.Request, id)
+func (api *API) Stream(ctx *gin.Context) {
+	api.StreamWS(ctx.Writer, ctx.Request)
 }
 
-func (api *API) ContainerLogs(ctx *gin.Context) {
-	id := ctx.Param("id")
-	api.logsWS(ctx.Writer, ctx.Request, id)
-}
-
-func (api *API) metricsWS(w http.ResponseWriter, r *http.Request, id string) {
+func (api *API) StreamWS(w http.ResponseWriter, r *http.Request) {
 	con, err := upgrade.Upgrade(w, r, nil)
 	if err != nil {
 		errBytes, _ := HttpErrBytes(500, err)
@@ -52,34 +72,6 @@ func (api *API) metricsWS(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 
-	container := api.Controller.Container(id)
-	if container == (&dock.Container{}) {
-		errBytes, _ := HttpErrBytes(404, errors.New("container not found"))
-		w.Write(errBytes)
-		return
-	}
-
-	done := make(chan struct{})
-	sets := container.Metrics.Stream(done)
-	WriteSets(con, sets, done)
-
-}
-func (api *API) logsWS(w http.ResponseWriter, r *http.Request, id string) {
-	con, err := upgrade.Upgrade(w, r, nil)
-	if err != nil {
-		errBytes, _ := HttpErrBytes(500, err)
-		w.Write(errBytes)
-		return
-	}
-
-	container := api.Controller.Container(id)
-	if container == (&dock.Container{}) {
-		errBytes, _ := HttpErrBytes(404, errors.New("container not found"))
-		w.Write(errBytes)
-		return
-	}
-
-	done := make(chan struct{})
-	sets := container.Logs.Stream(done)
-	WriteSets(con, sets, done)
+	client := api.Hub.CreateClient(con)
+	client.Run()
 }

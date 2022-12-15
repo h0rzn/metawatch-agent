@@ -1,24 +1,31 @@
 package api
 
 import (
+	"net/http"
+
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	"github.com/h0rzn/monitoring_agent/dock"
+	"github.com/h0rzn/monitoring_agent/api/hub"
+	"github.com/h0rzn/monitoring_agent/dock/controller"
+	"github.com/sirupsen/logrus"
 )
 
 var upgrade = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
+	CheckOrigin:     func(r *http.Request) bool { return true },
 }
 
 type API struct {
 	Router     *gin.Engine
 	Addr       string
-	Controller *dock.Controller
+	Controller *controller.Controller
+	Hub        *hub.Hub
 }
 
 func NewAPI(addr string) (*API, error) {
-	ctrl, err := dock.NewController()
+	ctrl, err := controller.NewController()
 	if err != nil {
 		return &API{}, err
 	}
@@ -26,23 +33,25 @@ func NewAPI(addr string) (*API, error) {
 		Router:     gin.Default(),
 		Addr:       addr,
 		Controller: ctrl,
+		Hub:        hub.NewHub(ctrl),
 	}, nil
 }
 
-func corsMW(c *gin.Context) {
-	c.Header("Access-Control-Allow-Origin", "*")
-	c.Header("Access-Control-Allow-Methods", "GET")
-}
-
 func (api *API) RegRoutes() {
-	api.Router.Use(corsMW)
+	api.Router.Use(cors.Default())
 	api.Router.GET("/containers/:id", api.Container)
 	api.Router.GET("/containers/all", api.Containers)
-	api.Router.GET("/containers/:id/stream", api.ContainerMetrics)
-	api.Router.GET("/containers/:id/logs", api.ContainerLogs)
+	api.Router.GET("/containers/:id/metrics", api.Metrics)
+	api.Router.GET("/stream", api.Stream)
 }
 
 func (api *API) Run() {
-	api.Controller.Init()
+	err := api.Controller.Init()
+	if err != nil {
+		logrus.Errorln("- API - failed to create controller, leaving...")
+		return
+	}
+	go api.Hub.Run()
+	logrus.Infoln("- API - starting gin router")
 	api.Router.Run(api.Addr)
 }
