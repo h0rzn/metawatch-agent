@@ -113,6 +113,12 @@ func (c *Client) Close() error {
 	logrus.Infoln("- CLIENT - closing")
 	c.closing = true
 	c.done <- struct{}{}
+
+	cls := map[string]string{
+		"type": "close",
+	}
+	_ = c.con.WriteJSON(cls)
+
 	c.con.Close()
 
 	select {
@@ -122,6 +128,16 @@ func (c *Client) Close() error {
 		return errors.New("failed to exit goroutines")
 	}
 
+}
+
+func (c *Client) Error(msg string) {
+	response := &Response{
+		CID:     "",
+		Type:    "error",
+		Message: msg,
+	}
+
+	_ = c.con.WriteJSON(response)
 }
 
 func (c *Client) Run() {

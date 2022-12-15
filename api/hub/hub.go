@@ -64,7 +64,7 @@ func (h *Hub) Subscribe(dem *Demand) {
 		err := h.CreateRessource(dem.CID, dem.Ressource)
 		if err != nil {
 			logrus.Errorf("- HUB - failed to create ressource: %s\n", err)
-			// send client error message
+			dem.Client.Error(err.Error())
 			return
 		}
 		fresh, _ := h.Ressource(dem.CID, dem.Ressource)
