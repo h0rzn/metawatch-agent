@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/docker/docker/api/types"
@@ -13,7 +12,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const bulkWriteN int = 5
+const (
+	bulkWriteN      int = 5
+	containerExists     = iota
+	containerStartErr
+	containerAdded
+)
 
 // Storage stores container instances and manages changes
 type Storage struct {
@@ -39,7 +43,7 @@ func NewStorage(c *client.Client) *Storage {
 }
 
 func (s *Storage) Init() error {
-	raw, err := s.Discover()
+	raw, err := s.Discover(filters.Args{})
 	if err != nil {
 		return err
 	}
@@ -58,12 +62,12 @@ func (s *Storage) Init() error {
 	return nil
 }
 
-func (s *Storage) Discover() ([]types.Container, error) {
+func (s *Storage) Discover(filters filters.Args) ([]types.Container, error) {
 	ctx := context.Background()
 	containers, err := s.c.ContainerList(
 		ctx,
 		types.ContainerListOptions{
-			Filters: filters.Args{},
+			Filters: filters,
 		})
 	logrus.Infof("- STORAGE - discovered %d container(s)\n", len(containers))
 	return containers, err
@@ -85,6 +89,28 @@ func (s *Storage) Add(raw ...types.Container) error {
 	return nil
 }
 
+// Push adds a container when its existance in storage is unkown
+// used by events
+func (s *Storage) Push(id string) int {
+	if _, exists := s.Container(id); exists {
+		return containerExists
+	}
+
+	f := filters.NewArgs()
+	f.Add("id", id)
+	found, err := s.Discover(f)
+	if err != nil || len(found) != 1 {
+		return containerStartErr
+	}
+
+	err = s.Add(found...)
+	if err != nil {
+		return containerStartErr
+	}
+
+	return containerAdded
+}
+
 func (s *Storage) Remove(cid string) error {
 	logrus.Debugf("- STORAGE - attempting to remove container %s\n", cid)
 	s.mutex.Lock()
@@ -95,11 +121,9 @@ func (s *Storage) Remove(cid string) error {
 		}
 
 		delete(s.Containers, container)
-		logrus.Infoln("- STORAGE - container removed")
-		fmt.Printf("len: %d\n", len(s.Containers))
+		logrus.Infof("- STORAGE - container removed: %d left\n", len(s.Containers))
 	} else {
-		fmt.Printf("cid: %s doesnt exist\n", cid)
-		fmt.Println(s.Containers)
+		logrus.Warningln("- STORAGE - tried to remove non-existent container")
 	}
 	s.mutex.Unlock()
 

@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/events"
@@ -37,26 +38,30 @@ func (ev *Events) Run() {
 }
 
 func (ev *Events) onStop(e events.Message) {
-	// check if container is indexed
-	// remove ressources
 	err := ev.Strg.Remove(e.ID)
 	if err != nil {
-		logrus.Errorf("- EVENTS - failed to handle stop event: %s\n", err)
+		logrus.Errorf("- EVENTS - failed to handle [stop] event: %s\n", err)
 	} else {
 		logrus.Infoln("- EVENTS - succesfully removed container based on [stop]")
 	}
 }
 
 func (ev *Events) onStart(e events.Message) {
-	// get cid
-	// query containers with filter
-	// create new container
+	status := ev.Strg.Push(e.ID)
+	switch status {
+	case containerExists:
+		logrus.Infoln("- EVENTS - ignoring [start]: container already indexed")
+	case containerStartErr:
+		logrus.Errorln("- EVENTS - failed to start container based on [start]")
+	case containerAdded:
+		logrus.Infoln("- EVENTS - succesfully added container based on [start]")
 
+	}
 }
 
 // https://docs.docker.com/engine/reference/commandline/events/
 func (ev *Events) catch(event events.Message) {
-	// only handle container events for now
+	// ignore non container events
 	if event.Type != events.ContainerEventType {
 		return
 	}
