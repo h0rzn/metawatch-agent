@@ -2,7 +2,6 @@ package api
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -31,22 +30,34 @@ func (api *API) Containers(ctx *gin.Context) {
 
 func (api *API) Metrics(ctx *gin.Context) {
 	id := ctx.Param("id")
-
 	query := ctx.Request.URL.Query()
-	layout := "2006-01-02T14:13:00"
-	tmin, err := time.Parse(layout, query.Get("from"))
-	if err != nil {
-		fmt.Println("[API] time parse", err)
+
+	if query.Get("from") == "" || query.Get("to") == "" {
+		HttpErr(ctx, http.StatusBadRequest, errors.New("from=x and to=x required"))
 		return
 	}
-	// tmin.IsZero()
-	tminPrim := primitive.NewDateTimeFromTime(tmin)
 
-	tmax := primitive.NewDateTimeFromTime(time.Now())
-	fmt.Println("PARAMS", id, tminPrim, tmax)
+	// 2022-12-15T13:00:00Z
+	layout := time.RFC3339Nano
+	tmin, err := time.Parse(layout, query.Get("from"))
+	if err != nil || tmin.IsZero() {
+		HttpErr(ctx, http.StatusBadRequest, err)
+		return
+	}
 
-	result := api.Controller.Storage.DB.Metrics(id, primitive.NewDateTimeFromTime(tmin), tmax)
-	_ = result
+	tmax, err := time.Parse(layout, query.Get("to"))
+	if err != nil || tmax.IsZero() {
+		HttpErr(ctx, http.StatusBadRequest, err)
+		return
+	}
+
+	tminP := primitive.NewDateTimeFromTime(tmin)
+	tmaxP := primitive.NewDateTimeFromTime(tmax)
+
+	result := api.Controller.Storage.DB.Metrics(id, tminP, tmaxP)
+	// fmt.Println(result[id])
+
+	ctx.JSON(http.StatusOK, result[id])
 }
 
 func (api *API) Stream(ctx *gin.Context) {

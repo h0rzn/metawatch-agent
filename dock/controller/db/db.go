@@ -53,9 +53,6 @@ func (db *DB) InitScheme() error {
 
 func (db *DB) Metrics(cid string, tmin primitive.DateTime, tmax primitive.DateTime) map[string][]metrics.Set {
 	logrus.Debugf("- DB - aggregate for %s (%s-%s)\n", cid, tmin, tmax)
-	// mDif := 2
-	// tminRaw := tmax.Time().Add(time.Duration(-mDif) * time.Hour)
-	// tmin := primitive.NewDateTimeFromTime(tminRaw)
 
 	match := bson.D{
 		{Key: "$match",
