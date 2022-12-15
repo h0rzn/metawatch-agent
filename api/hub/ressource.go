@@ -97,23 +97,23 @@ func (r *Ressource) addClient(c *Client) {
 }
 
 func (r *Ressource) rmClient(c *Client) {
-	fmt.Println("ressource rm client")
 	r.mutex.Lock()
 	err := c.Close()
 	if err != nil {
 		logrus.Errorf("- RESSOURCE - client close err: %s\n", err)
 	}
-	fmt.Println("client closed")
 	delete(r.Subscribers, c)
-	fmt.Println("client deleted")
+	
+	if len(r.Subscribers) == 0 {
+		r.Receiver.Close()
+		r.LveSig <- r
+	}
 	r.mutex.Unlock()
 }
 
 func (r *Ressource) Quit() {
 	logrus.Infoln("- RESSOURCE - quit")
 	for client := range r.Subscribers {
-		fmt.Println("ressource quit: kill client")
-		// send close message to client
 		r.rmClient(client)
 	}
 	r.LveSig <- r

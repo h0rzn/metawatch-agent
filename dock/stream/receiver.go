@@ -23,13 +23,11 @@ func NewReceiver(interv bool, leave chan *Receiver) *Receiver {
 
 // Quit handles intrinsic motivated leave
 func (recv *Receiver) Quit() {
-	logrus.Debugln("- RECEIVER - close (by choice)")
+	logrus.Debugln("- RECEIVER - quit")
 	recv.Leave <- recv
 }
 
-func (recv *Receiver) Close(byStreamer bool) {
-	logrus.Debugln("- RECEIVER - close (by force)")
-	if byStreamer {
-		recv.Closing <- struct{}{}
-	}
+func (recv *Receiver) Close() {
+	logrus.Debugln("- RECEIVER - close")
+	recv.Closing <- struct{}{}
 }

@@ -37,7 +37,7 @@ func (st *Storage) Add(interv bool) *Receiver {
 func (st *Storage) Cls(rcv *Receiver) {
 	st.mutex.Lock()
 	if _, exists := st.Receivers[rcv]; exists {
-		rcv.Close(true)
+		rcv.Close()
 		close(rcv.In)
 		delete(st.Receivers, rcv)
 	}

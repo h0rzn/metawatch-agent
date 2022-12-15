@@ -166,7 +166,7 @@ func (cont *Container) JSONSkel() *ContainerJSON {
 		currentMetrics = cur.Data.(metrics.Set)
 		break
 	}
-	recv.Close(false)
+	recv.Close()
 
 	return &ContainerJSON{
 		ID:      cont.ID,

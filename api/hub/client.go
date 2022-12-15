@@ -46,6 +46,7 @@ func NewClient(con *websocket.Conn, sub chan *Demand, usub chan *Demand, lve cha
 		In:      make(chan *Response),
 		Sub:     sub,
 		USub:    usub,
+		Lve:     lve,
 		done:    make(chan struct{}, 1),
 		closed:  make(chan struct{}, 1),
 		closing: false,
@@ -63,11 +64,16 @@ func (c *Client) parse(ctx context.Context, wg *sync.WaitGroup) {
 			fmt.Println("parse done <-c.done")
 			return
 		default:
-			fmt.Println("handling frame")
 			var frame *Request
 			err := c.con.ReadJSON(&frame)
 			if err != nil {
 				fmt.Println("parse done (read)")
+				if !c.closing {
+					fmt.Println("client->c.Lve sig")
+					c.Lve <- c
+				} else {
+					fmt.Println("already closing")
+				}
 				return
 			}
 

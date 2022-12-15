@@ -123,6 +123,7 @@ func (h *Hub) Ressource(cid string, event string) (r *Ressource, exists bool) {
 }
 
 func (h *Hub) ClientLeave(c *Client) {
+	fmt.Println("client leave")
 	for _, ressources := range h.Ressources {
 		for _, res := range ressources {
 			res.Rm <- c
@@ -147,6 +148,7 @@ func (h *Hub) Run() {
 		case dem := <-h.USub:
 			h.Unsubscribe(dem)
 		case client := <-h.Lve:
+			fmt.Println("hub rcvd client leave")
 			h.ClientLeave(client)
 		case res := <-h.ResLeave:
 			h.RessourceLeave(res)

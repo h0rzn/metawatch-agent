@@ -41,7 +41,7 @@ func (l *Link) Run() {
 	for {
 		select {
 		case <-l.Done:
-			l.Metrics.Close(false)
+			l.Metrics.Close()
 			close(l.Out)
 			return
 		case <-l.Metrics.Closing:
