@@ -89,7 +89,6 @@ func (s *Storage) Remove(cid string) error {
 	logrus.Debugf("- STORAGE - attempting to remove container %s\n", cid)
 	s.mutex.Lock()
 	if container, exists := s.Container(cid); exists {
-		//s.Containers[container].Done <- struct{}{}
 		err := container.Stop()
 		if err != nil {
 			return err

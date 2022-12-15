@@ -1,28 +1,26 @@
 package hub
 
 import (
+	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/gorilla/websocket"
 	"github.com/h0rzn/monitoring_agent/dock/container"
 	"github.com/h0rzn/monitoring_agent/dock/controller"
-	"github.com/h0rzn/monitoring_agent/dock/stream"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/exp/slices"
 )
 
 type Hub struct {
-	mutex      *sync.RWMutex
-	Eps        *Endpoints
+	mutex    *sync.RWMutex
+	Sub      chan *Demand
+	USub     chan *Demand
+	Lve      chan *Client
+	ResLeave chan *Ressource
+
 	Ctr        *controller.Controller
 	Ressources map[*container.Container][]*Ressource
-}
-
-type Endpoints struct {
-	Subscribe   chan *Demand
-	Unsubscribe chan *Demand
-	Leave       chan *Client
-	Relay       chan *stream.Set
 }
 
 func NewHub(ctr *controller.Controller) *Hub {
@@ -30,28 +28,20 @@ func NewHub(ctr *controller.Controller) *Hub {
 		mutex:      &sync.RWMutex{},
 		Ctr:        ctr,
 		Ressources: make(map[*container.Container][]*Ressource),
-		Eps: &Endpoints{
-			Subscribe:   make(chan *Demand),
-			Unsubscribe: make(chan *Demand),
-			Leave:       make(chan *Client),
-			Relay:       make(chan *stream.Set),
-		},
+		Sub:        make(chan *Demand),
+		USub:       make(chan *Demand),
+		Lve:        make(chan *Client),
+		ResLeave:   make(chan *Ressource),
 	}
 }
 
 func (h *Hub) CreateClient(con *websocket.Conn) *Client {
-	return NewClient(con, h.Eps)
-}
-
-func (h *Hub) HandleRessource(container *container.Container, r *Ressource) {
-	logrus.Infoln("- HUB - handling ressource")
-	<-r.Handle()
-	h.RemoveRessource(container, r)
+	return NewClient(con, h.Sub, h.USub, h.Lve)
 }
 
 func (h *Hub) RemoveRessource(c *container.Container, r *Ressource) {
 	logrus.Infof("- HUB - removed ressource %s for %s\n", r.Event, c.ID)
-	if len(r.Receivers) == 0 {
+	if len(r.Subscribers) == 0 {
 		ressources := h.Ressources[c]
 		rIdx := slices.Index(ressources, r)
 		if rIdx > -1 {
@@ -66,58 +56,65 @@ func (h *Hub) RemoveRessource(c *container.Container, r *Ressource) {
 }
 
 func (h *Hub) Subscribe(dem *Demand) {
-	logrus.Infof("- HUB - subscribing: res:%s cid:%s\n", dem.Ressource, dem.CID)
-	_, exists := h.Ctr.Container(dem.CID)
-	if !exists {
-		logrus.Errorf("- HUB - container %s not found\n", dem.CID)
-		return
-	}
-
+	logrus.Infoln("- HUB - subscribe")
 	h.mutex.Lock()
 	res, exists := h.Ressource(dem.CID, dem.Ressource)
 	if !exists {
-		logrus.Errorf("- HUB - ressource for %s not found\n", res.ContainerID)
+		fmt.Println("res sub: res does not exist create new one")
+		err := h.CreateRessource(dem.CID, dem.Ressource)
+		if err != nil {
+			logrus.Errorf("- HUB - failed to create ressource: %s\n", err)
+			// send client error message
+			return
+		}
+		fresh, _ := h.Ressource(dem.CID, dem.Ressource)
+		h.mutex.Unlock()
+		fresh.Add <- dem.Client
 		return
 	}
-	res.Add <- dem.Client
 	h.mutex.Unlock()
+	res.Add <- dem.Client
 }
 
 func (h *Hub) Unsubscribe(dem *Demand) {
-	logrus.Infof("- HUB - unsubscribe res:%s cid:%s\n", dem.Ressource, dem.CID)
-	_, exists := h.Ctr.Container(dem.CID)
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+	res, exists := h.Ressource(dem.CID, dem.Ressource)
 	if !exists {
+		logrus.Errorln("- HUB - failed to unsubscribe ressource: doesnt exist")
+		// send client error message
 		return
 	}
-
-	res, exists := h.Ressource(dem.CID, dem.Ressource)
-	if exists {
-		res.Rm <- dem.Client
-	}
-
+	res.Rm <- dem.Client
 }
 
-func (h *Hub) CreateRessource(cid, typ string) {
-	r := NewRessource(cid, typ)
+func (h *Hub) CreateRessource(cid, typ string) (err error) {
 	container, exists := h.Ctr.Container(cid)
 	if !exists {
-		logrus.Errorf("- HUB - container %s not found\n", cid)
+		return errors.New("container doesnt exist")
+	}
+
+	r := NewRessource(container, typ, h.ResLeave)
+	h.Ressources[container] = append(h.Ressources[container], r)
+	err = r.Init()
+	if err != nil {
 		return
 	}
-	h.Ressources[container] = append(h.Ressources[container], r)
-	r.SetStreamer(container)
-	go h.HandleRessource(container, r)
+	go r.Handle()
+
+	return
 }
 
 func (h *Hub) Ressource(cid string, event string) (r *Ressource, exists bool) {
 	container, exists := h.Ctr.Container(cid)
 	if !exists {
+		fmt.Println("res: container doesnt exist")
 		return r, false
 	}
 	ressources, found := h.Ressources[container]
 	if found {
 		for i := range ressources {
-			if ressources[i].ContainerID == cid && ressources[i].Event == event {
+			if ressources[i].container.ID == cid && ressources[i].Event == event {
 				return ressources[i], true
 			}
 		}
@@ -133,20 +130,27 @@ func (h *Hub) ClientLeave(c *Client) {
 	}
 }
 
+func (h *Hub) RessourceLeave(res *Ressource) {
+	container, exists := h.Ctr.Container(res.container.ID)
+	if exists {
+		h.RemoveRessource(container, res)
+	}
+	logrus.Infoln("- HUB - ressource removed")
+}
+
 func (h *Hub) Run() {
 	logrus.Infoln("- HUB - running")
-
 	for {
 		select {
-		case dem := <-h.Eps.Subscribe:
-			if _, exists := h.Ressource(dem.CID, dem.Ressource); !exists {
-				h.CreateRessource(dem.CID, dem.Ressource)
-			}
+		case dem := <-h.Sub:
 			h.Subscribe(dem)
-		case dem := <-h.Eps.Unsubscribe:
+		case dem := <-h.USub:
 			h.Unsubscribe(dem)
-		case client := <-h.Eps.Leave:
+		case client := <-h.Lve:
 			h.ClientLeave(client)
+		case res := <-h.ResLeave:
+			h.RessourceLeave(res)
 		}
 	}
+
 }

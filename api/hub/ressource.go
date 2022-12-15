@@ -11,81 +11,79 @@ import (
 
 type Ressource struct {
 	mutex       *sync.RWMutex
-	ContainerID string
 	Event       string
-	DataRcv     *stream.Receiver
+	container   *container.Container
+	Receiver    *stream.Receiver
 	Add         chan *Client
 	Rm          chan *Client
-	Receivers   map[*Client]bool
+	LveSig      chan *Ressource
+	done        chan struct{}
+	Subscribers map[*Client]bool
 }
 
-func NewRessource(cid string, event string) *Ressource {
+func NewRessource(container *container.Container, event string, lveSig chan *Ressource) *Ressource {
 	return &Ressource{
 		mutex:       &sync.RWMutex{},
-		ContainerID: cid,
+		container:   container,
 		Event:       event,
 		Add:         make(chan *Client),
 		Rm:          make(chan *Client),
-		Receivers:   make(map[*Client]bool),
+		LveSig:      lveSig,
+		done:        make(chan struct{}),
+		Subscribers: make(map[*Client]bool),
 	}
 }
 
-func (r *Ressource) SetStreamer(container *container.Container) {
+func (r *Ressource) Init() error {
+	logrus.Debugln("- RESSOURCE - init")
 	var rcv *stream.Receiver
 	var err error
 
 	switch r.Event {
 	case "logs":
-		rcv, err = container.Streams.Logs.Get(false)
+		rcv, err = r.container.Streams.Logs.Get(false)
 		logrus.Infoln("- RESSOURCE - logs.recv created\n")
 	case "metrics":
-		rcv, err = container.Streams.Metrics.Get(false)
+		rcv, err = r.container.Streams.Metrics.Get(false)
 		logrus.Infoln("- RESSOURCE - metrics.recv created\n")
-	default:
-		logrus.Errorf("- RESSOURCE - ressource init unkown event type: %s\n", r.Event)
-		// remove failed ressource
-		return
 	}
-	if err != nil {
-		logrus.Errorf("- RESSOURCE - failed create %s receiver: %s\n", r.Event, err)
-	}
-	r.DataRcv = rcv
+
+	r.Receiver = rcv
+	return err
 }
 
-func (r *Ressource) Handle() <-chan struct{} {
-	closed := make(chan struct{})
-	go func() {
-		for {
-			select {
-			case <-r.DataRcv.Closing:
-				fmt.Println("ressource: received closing sig from receiver")
-				r.Quit()
-				closed <- struct{}{}
+func (r *Ressource) Handle() {
+	logrus.Debugln("- RESSOURCE - handling")
+	for {
+		select {
+		case <-r.Receiver.Closing:
+			fmt.Println("ressource: received closing sig from receiver")
+			r.Quit()
+			return
+		case client := <-r.Add:
+			r.addClient(client)
+		case client := <-r.Rm:
+
+			r.rmClient(client)
+		case set, ok := <-r.Receiver.In:
+			if !ok {
+				fmt.Println("ressource: data_rcv in closed")
 				return
-			case client := <-r.Add:
-				r.addClient(client)
-			case client := <-r.Rm:
-				r.rmClient(client)
-			case set, ok := <-r.DataRcv.In:
-				if !ok {
-					fmt.Println("ressource: data_rcv in closed")
-					return
-				}
-				r.broadcast(set)
 			}
+			r.broadcast(set)
 		}
-	}()
-	return closed
+	}
+
 }
 
 func (r *Ressource) broadcast(set stream.Set) {
 	r.mutex.Lock()
-	frame := &ResponseFrame{
-		CID:     r.ContainerID,
+	frame := &Response{
+		CID:     r.container.ID,
 		Type:    r.Event,
-		Content: set.Data,
+		Message: set.Data,
 	}
-	for client := range r.Receivers {
+	for client := range r.Subscribers {
 		client.In <- frame
 	}
 	r.mutex.Unlock()
@@ -94,25 +92,29 @@ func (r *Ressource) broadcast(set stream.Set) {
 func (r *Ressource) addClient(c *Client) {
 	logrus.Debugln("- RESSOURCE - adding client")
 	r.mutex.Lock()
-	r.Receivers[c] = true
-	c.Handle()
+	r.Subscribers[c] = true
 	r.mutex.Unlock()
 }
 
 func (r *Ressource) rmClient(c *Client) {
+	fmt.Println("ressource rm client")
 	r.mutex.Lock()
 	err := c.Close()
 	if err != nil {
 		logrus.Errorf("- RESSOURCE - client close err: %s\n", err)
 	}
-	delete(r.Receivers, c)
+	fmt.Println("client closed")
+	delete(r.Subscribers, c)
+	fmt.Println("client deleted")
 	r.mutex.Unlock()
 }
 
 func (r *Ressource) Quit() {
-	logrus.Info("- RESSOURCE - quit")
-	for client := range r.Receivers {
+	logrus.Infoln("- RESSOURCE - quit")
+	for client := range r.Subscribers {
 		fmt.Println("ressource quit: kill client")
-		r.Rm <- client
+		// send close message to client
+		r.rmClient(client)
 	}
+	r.LveSig <- r
 }

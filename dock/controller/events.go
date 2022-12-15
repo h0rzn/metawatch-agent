@@ -38,6 +38,7 @@ func (ev *Events) Run() {
 
 func (ev *Events) onStop(e events.Message) {
 	// check if container is indexed
+	// remove ressources
 	err := ev.Strg.Remove(e.ID)
 	if err != nil {
 		logrus.Errorf("- EVENTS - failed to handle stop event: %s\n", err)

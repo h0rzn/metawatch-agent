@@ -33,7 +33,3 @@ func (recv *Receiver) Close(byStreamer bool) {
 		recv.Closing <- struct{}{}
 	}
 }
-
-func (recv *Receiver) ConfirmCls() {
-	
-}

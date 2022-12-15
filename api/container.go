@@ -61,7 +61,6 @@ func (api *API) StreamWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//done := make(chan struct{})
 	client := api.Hub.CreateClient(con)
-	client.Handle()
+	client.Run()
 }
