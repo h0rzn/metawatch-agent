@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/docker/docker/api/types/events"
 	"github.com/gorilla/websocket"
 	"github.com/h0rzn/monitoring_agent/dock/container"
 	"github.com/h0rzn/monitoring_agent/dock/controller"
@@ -86,6 +87,35 @@ func (h *Hub) Unsubscribe(dem *Demand) {
 		return
 	}
 	res.Rm <- dem.Client
+}
+
+func (h *Hub) BroadcastEvent(e events.Message) {
+	logrus.Infoln("- HUB - broadcasting event message to all clients")
+
+	// clients that already received that event
+	var received map[*Client]bool
+
+	eventMsg := map[string]string{
+		"event_type": e.Action,
+	}
+	event := &Response{
+		CID:     e.ID,
+		Type:    "container_event",
+		Message: eventMsg,
+	}
+
+	h.mutex.Lock()
+	for _, ressources := range h.Ressources {
+		for i := range ressources {
+			for receiver := range ressources[i].Subscribers {
+				if _, exists := received[receiver]; !exists {
+					receiver.In <- event
+				}
+			}
+		}
+	}
+	h.mutex.Unlock()
+
 }
 
 func (h *Hub) CreateRessource(cid, typ string) (err error) {

@@ -10,8 +10,9 @@ import (
 )
 
 type Events struct {
-	c    *client.Client
-	Strg *Storage
+	c      *client.Client
+	Strg   *Storage
+	Inform func(events.Message)
 }
 
 func NewEvents(c *client.Client, strg *Storage) *Events {
@@ -19,6 +20,10 @@ func NewEvents(c *client.Client, strg *Storage) *Events {
 		c:    c,
 		Strg: strg,
 	}
+}
+
+func (ev *Events) SetInformer(fn func(events.Message)) {
+	ev.Inform = fn
 }
 
 func (ev *Events) Run() {
@@ -43,6 +48,8 @@ func (ev *Events) onStop(e events.Message) {
 	} else {
 		logrus.Infoln("- EVENTS - succesfully removed container based on [stop]")
 	}
+	ev.Inform(e)
+
 }
 
 func (ev *Events) onStart(e events.Message) {
@@ -54,8 +61,8 @@ func (ev *Events) onStart(e events.Message) {
 		logrus.Errorln("- EVENTS - failed to start container based on [start]")
 	case containerAdded:
 		logrus.Infoln("- EVENTS - succesfully added container based on [start]")
-
 	}
+	ev.Inform(e)
 }
 
 // https://docs.docker.com/engine/reference/commandline/events/
