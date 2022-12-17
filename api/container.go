@@ -19,13 +19,15 @@ func (api *API) Container(ctx *gin.Context) {
 	if !exists {
 		HttpErr(ctx, http.StatusNotFound, errors.New("container not found"))
 	}
-	json := cont.JSONSkel()
-	ctx.JSON(http.StatusOK, json)
+	ctx.JSON(http.StatusOK, cont)
 }
 
 func (api *API) Containers(ctx *gin.Context) {
-	json := api.Controller.Storage.JSONSkel()
-	ctx.JSON(http.StatusOK, json)
+	containers, err := api.Controller.Storage.Containers()
+	if err != nil {
+		HttpErr(ctx, http.StatusInternalServerError, err)
+	}
+	ctx.JSON(http.StatusOK, containers)
 }
 
 func (api *API) Metrics(ctx *gin.Context) {

@@ -2,6 +2,7 @@ package container
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -17,18 +18,19 @@ import (
 const feederInterv = 5 * time.Second
 
 type Container struct {
-	ID      string
-	Names   []string
-	Image   string
-	State   State
-	Ports   []string
-	Streams Streams
-	c       *client.Client
+	ID      string         `json:"id"`
+	Names   []string       `json:"names"`
+	Image   string         `json:"image"`
+	State   State          `json:"state"`
+	Ports   []string       `json:"ports"`
+	Streams Streams        `json:"-"`
+	c       *client.Client `json:"-"`
 }
 
 type State struct {
-	Status  string `json:"status"`
-	Started string `json:"since"`
+	Status        string `json:"status"`
+	Started       string `json:"since"`
+	RestartPolicy string `json:"restart_policy"`
 }
 
 type Streams struct {
@@ -88,15 +90,6 @@ func (s *Streams) Stop() error {
 	return nil
 }
 
-type ContainerJSON struct {
-	ID      string       `json:"id"`
-	Names   []string     `json:"names"`
-	Image   string       `json:"image"`
-	State   State        `json:"state"`
-	Ports   []string     `json:"ports"`
-	Metrics *metrics.Set `json:"metrics"`
-}
-
 func NewContainer(raw types.Container, c *client.Client, feedOut chan interface{}) *Container {
 	ports := make([]string, 0)
 	for _, p := range raw.Ports {
@@ -132,14 +125,14 @@ func (cont *Container) prepare() <-chan error {
 	}
 
 	jsonBase := json.ContainerJSONBase
-	status := jsonBase.State.Status
-	statusStarted := jsonBase.State.StartedAt
-
-	// set current state
+	// set state
 	cont.State = State{
-		Status:  status,
-		Started: statusStarted,
+		Status:        jsonBase.State.Status,
+		Started:       jsonBase.State.StartedAt,
+		RestartPolicy: jsonBase.HostConfig.RestartPolicy.Name,
 	}
+
+	// todo: set limits
 
 	// start feeder
 	go cont.Streams.Feed(cont.Streams.FeederDone, cont.ID)
@@ -163,13 +156,13 @@ func (cont *Container) Stop() error {
 	return cont.Streams.Stop()
 }
 
-// JSON returns a json valid struct for a container
-func (cont *Container) JSONSkel() *ContainerJSON {
+func (cont *Container) MarshalJSON() ([]byte, error) {
+	type Alias Container
 	var currentMetrics metrics.Set
 
 	recv, err := cont.Streams.Metrics.Get(false)
 	if err != nil {
-		return &ContainerJSON{}
+		return []byte{}, err
 	}
 	for cur := range recv.In {
 		currentMetrics = cur.Data.(metrics.Set)
@@ -177,12 +170,11 @@ func (cont *Container) JSONSkel() *ContainerJSON {
 	}
 	recv.Close()
 
-	return &ContainerJSON{
-		ID:      cont.ID,
-		Names:   cont.Names,
-		Image:   cont.Image,
-		State:   cont.State,
-		Ports:   cont.Ports,
-		Metrics: &currentMetrics,
-	}
+	return json.Marshal(&struct {
+		CurMetrics metrics.Set `json:"metrics"`
+		*Alias
+	}{
+		CurMetrics: currentMetrics,
+		Alias:      (*Alias)(cont),
+	})
 }

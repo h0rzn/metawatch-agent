@@ -25,21 +25,21 @@ const (
 // Storage stores container instances and manages changes
 // container Images are modified and passed through from docker engine api
 type Storage struct {
-	mutex      sync.RWMutex
-	Containers map[*container.Container]bool
-	c          *client.Client
-	DB         *db.DB
-	Events     *Events
-	FeedIn     chan interface{}
+	mutex          sync.RWMutex
+	ContainerStore map[*container.Container]bool
+	c              *client.Client
+	DB             *db.DB
+	Events         *Events
+	FeedIn         chan interface{}
 }
 
 func NewStorage(c *client.Client) *Storage {
 	strg := &Storage{
-		mutex:      sync.RWMutex{},
-		Containers: make(map[*container.Container]bool),
-		c:          c,
-		FeedIn:     make(chan interface{}),
-		DB:         &db.DB{},
+		mutex:          sync.RWMutex{},
+		ContainerStore: make(map[*container.Container]bool),
+		c:              c,
+		FeedIn:         make(chan interface{}),
+		DB:             &db.DB{},
 	}
 	strg.Events = NewEvents(c, strg)
 	go strg.Events.Run()
@@ -99,6 +99,15 @@ func (s *Storage) Images() (images []*image.Image, err error) {
 	return
 }
 
+func (s *Storage) Containers() (containers []*container.Container, err error) {
+	s.mutex.Lock()
+	for container := range s.ContainerStore {
+		containers = append(containers, container)
+	}
+	s.mutex.Unlock()
+	return
+}
+
 func (s *Storage) Discover(filters filters.Args) ([]types.Container, error) {
 	ctx := context.Background()
 	containers, err := s.c.ContainerList(
@@ -119,7 +128,7 @@ func (s *Storage) Add(raw ...types.Container) error {
 			logrus.Errorf("- STORAGE - container failed to start (ignore): %s", err)
 			continue
 		}
-		s.Containers[cont] = true
+		s.ContainerStore[cont] = true
 		added = added + 1
 	}
 	logrus.Infof("- STORAGE - added %d container(s)\n", added)
@@ -157,8 +166,8 @@ func (s *Storage) Remove(cid string) error {
 			return err
 		}
 
-		delete(s.Containers, container)
-		logrus.Infof("- STORAGE - container removed: %d left\n", len(s.Containers))
+		delete(s.ContainerStore, container)
+		logrus.Infof("- STORAGE - container removed: %d left\n", len(s.ContainerStore))
 	} else {
 		logrus.Warningln("- STORAGE - tried to remove non-existent container")
 	}
@@ -168,7 +177,7 @@ func (s *Storage) Remove(cid string) error {
 }
 
 func (s *Storage) Container(id string) (*container.Container, bool) {
-	for container := range s.Containers {
+	for container := range s.ContainerStore {
 		if container.ID == id {
 			return container, true
 		}
@@ -176,14 +185,15 @@ func (s *Storage) Container(id string) (*container.Container, bool) {
 	return &container.Container{}, false
 }
 
-func (s *Storage) JSONSkel() []*container.ContainerJSON {
-	var skels []*container.ContainerJSON
+// func (s *Storage) JSONSkel() []*container.ContainerJSON {
+// 	var skels []*container.ContainerJSON
 
-	for container := range s.Containers {
-		skels = append(skels, container.JSONSkel())
-	}
-	return skels
-}
+// 	for container := range s.Containers {
+// 		skels = append(skels, container.JSONSkel())
+// 	}
+// 	return skels
+
+// }
 
 func (s *Storage) Feed() {
 	data := []interface{}{}
