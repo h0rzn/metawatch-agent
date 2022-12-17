@@ -75,3 +75,12 @@ func (api *API) StreamWS(w http.ResponseWriter, r *http.Request) {
 	client := api.Hub.CreateClient(con)
 	client.Run()
 }
+
+func (api *API) Images(ctx *gin.Context) {
+	images, err := api.Controller.Storage.Images()
+	if err != nil {
+		HttpErr(ctx, http.StatusInternalServerError, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, images)
+}

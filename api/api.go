@@ -43,6 +43,8 @@ func (api *API) RegRoutes() {
 	api.Router.GET("/containers/all", api.Containers)
 	api.Router.GET("/containers/:id/metrics", api.Metrics)
 	api.Router.GET("/stream", api.Stream)
+
+	api.Router.GET("/images", api.Images)
 }
 
 func (api *API) Run() {

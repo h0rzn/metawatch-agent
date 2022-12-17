@@ -2,6 +2,8 @@ package controller
 
 import (
 	"context"
+	"fmt"
+
 	"sync"
 
 	"github.com/docker/docker/api/types"
@@ -9,6 +11,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/h0rzn/monitoring_agent/dock/container"
 	"github.com/h0rzn/monitoring_agent/dock/controller/db"
+	"github.com/h0rzn/monitoring_agent/dock/image"
 	"github.com/sirupsen/logrus"
 )
 
@@ -20,6 +23,7 @@ const (
 )
 
 // Storage stores container instances and manages changes
+// container Images are modified and passed through from docker engine api
 type Storage struct {
 	mutex      sync.RWMutex
 	Containers map[*container.Container]bool
@@ -59,7 +63,40 @@ func (s *Storage) Init() error {
 	}
 
 	go s.Feed()
+
+	var images []*image.Image
+	ctx := context.Background()
+	imgs, err := s.c.ImageList(ctx, types.ImageListOptions{})
+	if err != nil {
+		fmt.Println(err)
+	}
+	for _, img := range imgs {
+		imgInsp, _, err := s.c.ImageInspectWithRaw(ctx, img.ID)
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		cur := &image.Image{Tag: imgInsp.RepoTags[0]}
+		images = append(images, cur)
+	}
+	for _, img := range images {
+		fmt.Println(img)
+	}
+
 	return nil
+}
+
+func (s *Storage) Images() (images []*image.Image, err error) {
+	ctx := context.Background()
+	imgsRaw, err := s.c.ImageList(ctx, types.ImageListOptions{})
+	if err != nil {
+		return
+	}
+
+	for _, raw := range imgsRaw {
+		images = append(images, image.NewImage(raw))
+	}
+	return
 }
 
 func (s *Storage) Discover(filters filters.Args) ([]types.Container, error) {
