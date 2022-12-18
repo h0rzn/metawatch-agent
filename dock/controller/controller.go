@@ -3,6 +3,7 @@ package controller
 import (
 	"github.com/docker/docker/client"
 	"github.com/h0rzn/monitoring_agent/dock/container"
+	"github.com/h0rzn/monitoring_agent/dock/image"
 	"github.com/sirupsen/logrus"
 )
 
@@ -35,6 +36,10 @@ func (ctr *Controller) Quit() {
 	logrus.Infoln("- CONTROLLER - quit")
 }
 
-func (ctr *Controller) Container(id string) (container *container.Container, found bool) {
-	return ctr.Storage.Container(id)
+func (ctr *Controller) Container(id string) (container *container.Container, exists bool) {
+	return ctr.Storage.ContainerStore.Container(id)
+}
+
+func (ctr *Controller) Image(id string) (image *image.Image, exists bool) {
+	return ctr.Storage.ImageStore.Image(id)
 }

@@ -23,10 +23,7 @@ func (api *API) Container(ctx *gin.Context) {
 }
 
 func (api *API) Containers(ctx *gin.Context) {
-	containers, err := api.Controller.Storage.Containers()
-	if err != nil {
-		HttpErr(ctx, http.StatusInternalServerError, err)
-	}
+	containers := api.Controller.Storage.ContainerStore.Items()
 	ctx.JSON(http.StatusOK, containers)
 }
 
@@ -79,10 +76,6 @@ func (api *API) StreamWS(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *API) Images(ctx *gin.Context) {
-	images, err := api.Controller.Storage.Images()
-	if err != nil {
-		HttpErr(ctx, http.StatusInternalServerError, err)
-		return
-	}
+	images := api.Controller.Storage.ImageStore.Items()
 	ctx.JSON(http.StatusOK, images)
 }

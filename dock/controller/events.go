@@ -42,25 +42,19 @@ func (ev *Events) Run() {
 }
 
 func (ev *Events) onStop(e events.Message) {
-	err := ev.Strg.Remove(e.ID)
+	err := ev.Strg.ContainerStore.Remove(e.ID)
 	if err != nil {
 		logrus.Errorf("- EVENTS - failed to handle [stop] event: %s\n", err)
 	} else {
 		logrus.Infoln("- EVENTS - succesfully removed container based on [stop]")
 	}
 	ev.Inform(e)
-
 }
 
 func (ev *Events) onStart(e events.Message) {
-	status := ev.Strg.Push(e.ID)
-	switch status {
-	case containerExists:
-		logrus.Infoln("- EVENTS - ignoring [start]: container already indexed")
-	case containerStartErr:
-		logrus.Errorln("- EVENTS - failed to start container based on [start]")
-	case containerAdded:
-		logrus.Infoln("- EVENTS - succesfully added container based on [start]")
+	err := ev.Strg.ContainerStore.Add(e.ID)
+	if err != nil {
+		logrus.Errorf("- EVENTS - failed to start container, [start] event: %s\n", err)
 	}
 	ev.Inform(e)
 }

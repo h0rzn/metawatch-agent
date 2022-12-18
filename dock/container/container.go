@@ -37,11 +37,12 @@ type Streams struct {
 	Logs       *logs.Logs
 	Metrics    *metrics.Metrics
 	FeederDone chan struct{}
-	FeedOut    chan interface{}
+	FeedIn     chan interface{}
 }
 
 // Feed collects data from streamer and feeds them to tb
 func (s *Streams) Feed(done chan struct{}, cid string) {
+	logrus.Debugln("- CONTAINER - starting feed")
 	metricsRcv, err := s.Metrics.Get(true)
 	if err != nil {
 		return
@@ -56,16 +57,15 @@ func (s *Streams) Feed(done chan struct{}, cid string) {
 			fmt.Println("feeder: rcv closing sig")
 			return
 		case <-feederTicker.C:
+			fmt.Println("feeder tick")
 			set, ok := <-metricsRcv.In
 			if !ok {
 				fmt.Println("feeder: rcv in is closed")
 				return
 			}
 			if metricsSet, ok := set.Data.(metrics.Set); ok {
-				metricsWrap := db.NewMetricsMod(cid, metricsSet.When, metricsSet)
-				s.FeedOut <- metricsWrap
-				logrus.Tracef("- Container - -> sending for cid: %s\n", metricsWrap.CID)
-
+				s.FeedIn <- db.NewMetricsMod(cid, metricsSet.When, metricsSet)
+				logrus.Debugf("- Container - -> sending for cid: %s\n", cid)
 			} else {
 				logrus.Info("- LINK - failed to parse incomming interface to metrics.Set")
 			}
@@ -81,17 +81,19 @@ func (s *Streams) Stop() error {
 	if err != nil {
 		return err
 	}
+	logrus.Debugln("- CONTAINER - metrics stopped")
 
 	err = s.Logs.Stop()
 	if err != nil {
 		return err
 	}
+	logrus.Debugln("- CONTAINER - logs stopped")
 
 	return nil
 }
 
-func NewContainer(raw types.Container, c *client.Client, feedOut chan interface{}) *Container {
-	ports := make([]string, 0)
+func NewContainer(raw types.Container, c *client.Client, feedIn chan interface{}) *Container {
+	ports := make([]string, len(raw.Ports))
 	for _, p := range raw.Ports {
 		pFmt := fmt.Sprintf("%s:%d->%d/%s", p.IP, p.PublicPort, p.PrivatePort, p.Type)
 		ports = append(ports, pFmt)
@@ -106,7 +108,7 @@ func NewContainer(raw types.Container, c *client.Client, feedOut chan interface{
 			Metrics:    metrics.NewMetrics(c, raw.ID),
 			Logs:       logs.NewLogs(c, raw.ID),
 			FeederDone: make(chan struct{}),
-			FeedOut:    feedOut,
+			FeedIn:     feedIn,
 		},
 		c: c,
 	}
