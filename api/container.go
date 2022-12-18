@@ -19,13 +19,12 @@ func (api *API) Container(ctx *gin.Context) {
 	if !exists {
 		HttpErr(ctx, http.StatusNotFound, errors.New("container not found"))
 	}
-	json := cont.JSONSkel()
-	ctx.JSON(http.StatusOK, json)
+	ctx.JSON(http.StatusOK, cont)
 }
 
 func (api *API) Containers(ctx *gin.Context) {
-	json := api.Controller.Storage.JSONSkel()
-	ctx.JSON(http.StatusOK, json)
+	containers := api.Controller.Storage.ContainerStore.Items()
+	ctx.JSON(http.StatusOK, containers)
 }
 
 func (api *API) Metrics(ctx *gin.Context) {
@@ -74,4 +73,9 @@ func (api *API) StreamWS(w http.ResponseWriter, r *http.Request) {
 
 	client := api.Hub.CreateClient(con)
 	client.Run()
+}
+
+func (api *API) Images(ctx *gin.Context) {
+	images := api.Controller.Storage.ImageStore.Items()
+	ctx.JSON(http.StatusOK, images)
 }

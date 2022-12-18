@@ -2,6 +2,7 @@ package container
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -17,28 +18,31 @@ import (
 const feederInterv = 5 * time.Second
 
 type Container struct {
-	ID      string
-	Names   []string
-	Image   string
-	State   State
-	Streams Streams
-	c       *client.Client
+	ID      string         `json:"id"`
+	Names   []string       `json:"names"`
+	Image   string         `json:"image"`
+	State   State          `json:"state"`
+	Ports   []string       `json:"ports"`
+	Streams Streams        `json:"-"`
+	c       *client.Client `json:"-"`
 }
 
 type State struct {
-	Status  string `json:"status"`
-	Started string `json:"since"`
+	Status        string `json:"status"`
+	Started       string `json:"since"`
+	RestartPolicy string `json:"restart_policy"`
 }
 
 type Streams struct {
 	Logs       *logs.Logs
 	Metrics    *metrics.Metrics
 	FeederDone chan struct{}
-	FeedOut    chan interface{}
+	FeedIn     chan interface{}
 }
 
 // Feed collects data from streamer and feeds them to tb
 func (s *Streams) Feed(done chan struct{}, cid string) {
+	logrus.Debugln("- CONTAINER - starting feed")
 	metricsRcv, err := s.Metrics.Get(true)
 	if err != nil {
 		return
@@ -53,16 +57,15 @@ func (s *Streams) Feed(done chan struct{}, cid string) {
 			fmt.Println("feeder: rcv closing sig")
 			return
 		case <-feederTicker.C:
+			fmt.Println("feeder tick")
 			set, ok := <-metricsRcv.In
 			if !ok {
 				fmt.Println("feeder: rcv in is closed")
 				return
 			}
 			if metricsSet, ok := set.Data.(metrics.Set); ok {
-				metricsWrap := db.NewMetricsMod(cid, metricsSet.When, metricsSet)
-				s.FeedOut <- metricsWrap
-				logrus.Tracef("- Container - -> sending for cid: %s\n", metricsWrap.CID)
-
+				s.FeedIn <- db.NewMetricsMod(cid, metricsSet.When, metricsSet)
+				logrus.Debugf("- Container - -> sending for cid: %s\n", cid)
 			} else {
 				logrus.Info("- LINK - failed to parse incomming interface to metrics.Set")
 			}
@@ -78,33 +81,34 @@ func (s *Streams) Stop() error {
 	if err != nil {
 		return err
 	}
+	logrus.Debugln("- CONTAINER - metrics stopped")
 
 	err = s.Logs.Stop()
 	if err != nil {
 		return err
 	}
+	logrus.Debugln("- CONTAINER - logs stopped")
 
 	return nil
 }
 
-type ContainerJSON struct {
-	ID      string       `json:"id"`
-	Names   []string     `json:"names"`
-	Image   string       `json:"image"`
-	State   State        `json:"state"`
-	Metrics *metrics.Set `json:"metrics"`
-}
+func NewContainer(raw types.Container, c *client.Client, feedIn chan interface{}) *Container {
+	ports := make([]string, len(raw.Ports))
+	for _, p := range raw.Ports {
+		pFmt := fmt.Sprintf("%s:%d->%d/%s", p.IP, p.PublicPort, p.PrivatePort, p.Type)
+		ports = append(ports, pFmt)
+	}
 
-func NewContainer(raw types.Container, c *client.Client, feedOut chan interface{}) *Container {
 	return &Container{
 		ID:    raw.ID,
 		Names: raw.Names,
 		Image: raw.Image,
+		Ports: ports,
 		Streams: Streams{
 			Metrics:    metrics.NewMetrics(c, raw.ID),
 			Logs:       logs.NewLogs(c, raw.ID),
 			FeederDone: make(chan struct{}),
-			FeedOut:    feedOut,
+			FeedIn:     feedIn,
 		},
 		c: c,
 	}
@@ -123,14 +127,14 @@ func (cont *Container) prepare() <-chan error {
 	}
 
 	jsonBase := json.ContainerJSONBase
-	status := jsonBase.State.Status
-	statusStarted := jsonBase.State.StartedAt
-
-	// set current state
+	// set state
 	cont.State = State{
-		Status:  status,
-		Started: statusStarted,
+		Status:        jsonBase.State.Status,
+		Started:       jsonBase.State.StartedAt,
+		RestartPolicy: jsonBase.HostConfig.RestartPolicy.Name,
 	}
+
+	// todo: set limits
 
 	// start feeder
 	go cont.Streams.Feed(cont.Streams.FeederDone, cont.ID)
@@ -154,13 +158,13 @@ func (cont *Container) Stop() error {
 	return cont.Streams.Stop()
 }
 
-// JSON returns a json valid struct for a container
-func (cont *Container) JSONSkel() *ContainerJSON {
+func (cont *Container) MarshalJSON() ([]byte, error) {
+	type Alias Container
 	var currentMetrics metrics.Set
 
 	recv, err := cont.Streams.Metrics.Get(false)
 	if err != nil {
-		return &ContainerJSON{}
+		return []byte{}, err
 	}
 	for cur := range recv.In {
 		currentMetrics = cur.Data.(metrics.Set)
@@ -168,11 +172,11 @@ func (cont *Container) JSONSkel() *ContainerJSON {
 	}
 	recv.Close()
 
-	return &ContainerJSON{
-		ID:      cont.ID,
-		Names:   cont.Names,
-		Image:   cont.Image,
-		State:   cont.State,
-		Metrics: &currentMetrics,
-	}
+	return json.Marshal(&struct {
+		CurMetrics metrics.Set `json:"metrics"`
+		*Alias
+	}{
+		CurMetrics: currentMetrics,
+		Alias:      (*Alias)(cont),
+	})
 }
