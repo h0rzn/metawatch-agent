@@ -23,6 +23,10 @@ type Response struct {
 	Message interface{} `json:"message"`
 }
 
+type CloseMessage struct {
+	Type string `json:"type"`
+}
+
 type Demand struct {
 	Client    *Client
 	CID       string
@@ -30,26 +34,28 @@ type Demand struct {
 }
 
 type Client struct {
-	con     *websocket.Conn
-	In      chan *Response
-	Sub     chan *Demand
-	USub    chan *Demand
-	Lve     chan *Client
-	done    chan struct{}
-	closed  chan struct{}
-	closing bool
+	con      *websocket.Conn
+	In       chan *Response
+	Sub      chan *Demand
+	USub     chan *Demand
+	Lve      chan *Client
+	sndClose chan CloseMessage
+	done     chan struct{}
+	closed   chan struct{}
+	closing  bool
 }
 
 func NewClient(con *websocket.Conn, sub chan *Demand, usub chan *Demand, lve chan *Client) *Client {
 	return &Client{
-		con:     con,
-		In:      make(chan *Response),
-		Sub:     sub,
-		USub:    usub,
-		Lve:     lve,
-		done:    make(chan struct{}, 1),
-		closed:  make(chan struct{}, 1),
-		closing: false,
+		con:      con,
+		In:       make(chan *Response),
+		Sub:      sub,
+		USub:     usub,
+		Lve:      lve,
+		sndClose: make(chan CloseMessage, 1),
+		done:     make(chan struct{}, 1),
+		closed:   make(chan struct{}, 1),
+		closing:  false,
 	}
 }
 
@@ -106,6 +112,10 @@ func (c *Client) HandleSend(ctx context.Context, wg *sync.WaitGroup) {
 		select {
 		case <-ctx.Done():
 			return
+		case closeMsg := <-c.sndClose:
+			fmt.Println("sndClose received")
+			_ = c.con.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, closeMsg.Type), time.Now().Add(3*time.Second))
+			c.con.Close()
 		case response := <-c.In:
 			err := c.con.WriteJSON(response)
 			if err != nil {
@@ -120,12 +130,9 @@ func (c *Client) Close() error {
 	c.closing = true
 	c.done <- struct{}{}
 
-	cls := map[string]string{
-		"type": "close",
+	c.sndClose <- CloseMessage{
+		Type: "close",
 	}
-	_ = c.con.WriteJSON(cls)
-
-	c.con.Close()
 
 	select {
 	case <-c.closed:
