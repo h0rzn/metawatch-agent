@@ -39,7 +39,7 @@ func (s *Storage) Init() error {
 	if err != nil {
 		return err
 	}
-	logrus.Infof("- STORAGE - discovered %d container(s)\n", len(raws))
+	logrus.Infof("- STORAGE - discovered %d container(s) (%d running, %d stopped)\n", len(raws), -1, -1)
 
 	for idx := range raws {
 		s.AddRaw(raws[idx])
@@ -61,7 +61,6 @@ func (s *Storage) AddRaw(raw types.Container) error {
 }
 
 func (s *Storage) Add(id string) error {
-	s.mutex.Lock()
 	if _, exists := s.Container(id); exists {
 		return nil
 	}
@@ -82,7 +81,6 @@ func (s *Storage) Add(id string) error {
 		return err
 	}
 
-	s.mutex.Unlock()
 	logrus.Infoln("- STORAGE - added container")
 	return nil
 }
