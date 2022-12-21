@@ -18,19 +18,32 @@ import (
 const feederInterv = 5 * time.Second
 
 type Container struct {
-	ID      string         `json:"id"`
-	Names   []string       `json:"names"`
-	Image   string         `json:"image"`
-	State   State          `json:"state"`
-	Ports   []string       `json:"ports"`
-	Streams Streams        `json:"-"`
-	c       *client.Client `json:"-"`
+	ID       string         `json:"id"`
+	Names    []string       `json:"names"`
+	Image    string         `json:"image"`
+	State    State          `json:"state"`
+	Networks []*Network     `json:"networks"`
+	Volumes  []*Volume      `json:"volume"`
+	Ports    []string       `json:"ports"`
+	Streams  Streams        `json:"-"`
+	c        *client.Client `json:"-"`
 }
 
 type State struct {
 	Status        string `json:"status"`
 	Started       string `json:"since"`
 	RestartPolicy string `json:"restart_policy"`
+}
+
+type Network struct {
+	Name    string   `json:"name"`
+	ID      string   `json:"id"`
+	Aliases []string `json:"aliases"`
+	IPAddr  string   `json:"ip"`
+}
+
+type Volume struct {
+	Path string `json:"path"`
 }
 
 type Streams struct {
@@ -100,10 +113,12 @@ func NewContainer(raw types.Container, c *client.Client, feedIn chan interface{}
 	}
 
 	return &Container{
-		ID:    raw.ID,
-		Names: raw.Names,
-		Image: raw.Image,
-		Ports: ports,
+		ID:       raw.ID,
+		Names:    raw.Names,
+		Image:    raw.Image,
+		Networks: make([]*Network, 0),
+		Volumes:  make([]*Volume, 0),
+		Ports:    ports,
 		Streams: Streams{
 			Metrics:    metrics.NewMetrics(c, raw.ID),
 			Logs:       logs.NewLogs(c, raw.ID),
@@ -132,6 +147,21 @@ func (cont *Container) prepare() <-chan error {
 		Status:        jsonBase.State.Status,
 		Started:       jsonBase.State.StartedAt,
 		RestartPolicy: jsonBase.HostConfig.RestartPolicy.Name,
+	}
+
+	// networks
+	for name, eps := range json.NetworkSettings.Networks {
+		net := &Network{
+			Name:    name,
+			Aliases: eps.Aliases,
+			IPAddr:  eps.IPAddress,
+		}
+		cont.Networks = append(cont.Networks, net)
+	}
+
+	// volumes
+	for path := range json.Config.Volumes {
+		cont.Volumes = append(cont.Volumes, &Volume{Path: path})
 	}
 
 	// todo: set limits
