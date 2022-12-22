@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/h0rzn/monitoring_agent/dock/controller/db"
 	"github.com/h0rzn/monitoring_agent/dock/logs"
@@ -19,7 +18,7 @@ const feederInterv = 5 * time.Second
 
 type Container struct {
 	ID       string         `json:"id"`
-	Names    []string       `json:"names"`
+	Names    string         `json:"name"`
 	Image    string         `json:"image"`
 	State    State          `json:"state"`
 	Networks []*Network     `json:"networks"`
@@ -105,23 +104,13 @@ func (s *Streams) Stop() error {
 	return nil
 }
 
-func NewContainer(raw types.Container, c *client.Client, feedIn chan interface{}) *Container {
-	ports := make([]string, len(raw.Ports))
-	for _, p := range raw.Ports {
-		pFmt := fmt.Sprintf("%s:%d->%d/%s", p.IP, p.PublicPort, p.PrivatePort, p.Type)
-		ports = append(ports, pFmt)
-	}
-
+func NewContainer(c *client.Client, cid string, feedIn chan interface{}) *Container {
 	return &Container{
-		ID:       raw.ID,
-		Names:    raw.Names,
-		Image:    raw.Image,
+		ID:       cid,
 		Networks: make([]*Network, 0),
 		Volumes:  make([]*Volume, 0),
-		Ports:    ports,
+		Ports:    make([]string, 0),
 		Streams: Streams{
-			Metrics:    metrics.NewMetrics(c, raw.ID),
-			Logs:       logs.NewLogs(c, raw.ID),
 			FeederDone: make(chan struct{}),
 			FeedIn:     feedIn,
 		},
@@ -140,13 +129,24 @@ func (cont *Container) prepare() <-chan error {
 		out <- err
 		return out
 	}
+	base := json.ContainerJSONBase
 
-	jsonBase := json.ContainerJSONBase
+	cont.Names = base.Name
+	cont.Image = base.Image
+
+	// ports
+	// ports := make([]string, len(raw.Ports))
+	// for _, p := range raw.Ports {
+	// 	pFmt := fmt.Sprintf("%s:%d->%d/%s", p.IP, p.PublicPort, p.PrivatePort, p.Type)
+	// 	ports = append(ports, pFmt)
+	// }
+	cont.Ports = make([]string, 0)
+
 	// set state
 	cont.State = State{
-		Status:        jsonBase.State.Status,
-		Started:       jsonBase.State.StartedAt,
-		RestartPolicy: jsonBase.HostConfig.RestartPolicy.Name,
+		Status:        base.State.Status,
+		Started:       base.State.StartedAt,
+		RestartPolicy: base.HostConfig.RestartPolicy.Name,
 	}
 
 	// networks
@@ -164,10 +164,11 @@ func (cont *Container) prepare() <-chan error {
 		cont.Volumes = append(cont.Volumes, &Volume{Path: path})
 	}
 
-	// todo: set limits
-
-	// start feeder
-	go cont.Streams.Feed(cont.Streams.FeederDone, cont.ID)
+	// streams
+	cont.Streams = Streams{
+		Metrics: metrics.NewMetrics(cont.c, base.ID),
+		Logs:    logs.NewLogs(cont.c, base.ID),
+	}
 
 	out <- err
 	return out
@@ -177,6 +178,7 @@ func (cont *Container) Start() error {
 	logrus.Infoln("- CONTAINER - preparing...")
 	select {
 	case err := <-cont.prepare():
+		go cont.Streams.Feed(cont.Streams.FeederDone, cont.ID)
 		return err
 	case <-time.After(8 * time.Second):
 		return errors.New("container start timed out")

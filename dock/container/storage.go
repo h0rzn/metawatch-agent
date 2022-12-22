@@ -39,49 +39,60 @@ func (s *Storage) Init() error {
 	if err != nil {
 		return err
 	}
-	logrus.Infof("- STORAGE - discovered %d container(s) (%d running, %d stopped)\n", len(raws), -1, -1)
+	logrus.Infof("- STORAGE - discovered %d container(s)\n", len(raws))
 
 	for idx := range raws {
-		s.AddRaw(raws[idx])
+		err := s.Add(raws[idx].ID)
+		if err != nil {
+			logrus.Errorf("- STORAGE - failed to add container: %s\n", err)
+			continue
+		}
+		logrus.Infoln("- STORAGE - added container")
 	}
 
 	return nil
 }
 
-func (s *Storage) AddRaw(raw types.Container) error {
+func (s *Storage) Add(id string) (err error) {
+	if container, exists := s.Container(id); exists {
+		// stopped
+		if !s.Containers[container] {
+			err = container.Start()
+			if err != nil {
+				return
+			}
+			s.Containers[container] = true
+			return
+		}
+		// dont do anything if container is already running
+		return
+	}
+
+	// add unindexed container
 	s.mutex.Lock()
-	container := NewContainer(raw, s.c, s.feed)
-	s.Containers[container] = true
-	err := container.Start()
+	container := NewContainer(s.c, id, s.feed)
+	err = container.Start()
 	if err != nil {
-		logrus.Errorf("- STORAGE - failed to add raw container: %s\n", err)
+		return
+	}
+	s.Containers[container] = true
+	s.mutex.Unlock()
+	return
+}
+
+func (s *Storage) Stop(id string) error {
+	s.mutex.Lock()
+	if container, exists := s.Container(id); exists {
+		running := s.Containers[container]
+		if running {
+			err := container.Stop()
+			if err != nil {
+				return err
+			}
+			s.Containers[container] = false
+		}
 	}
 	s.mutex.Unlock()
-	return nil
-}
-
-func (s *Storage) Add(id string) error {
-	if _, exists := s.Container(id); exists {
-		return nil
-	}
-	ctx := context.Background()
-	idFilter := filters.NewArgs()
-	idFilter.Add("id", id)
-	containers, err := s.c.ContainerList(
-		ctx,
-		types.ContainerListOptions{
-			Filters: idFilter,
-		})
-	if err != nil {
-		return err
-	}
-	raw := containers[0]
-	err = s.AddRaw(raw)
-	if err != nil {
-		return err
-	}
-
-	logrus.Infoln("- STORAGE - added container")
 	return nil
 }
 
