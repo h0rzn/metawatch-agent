@@ -17,15 +17,15 @@ import (
 const feederInterv = 5 * time.Second
 
 type Container struct {
-	ID       string         `json:"id"`
-	Names    string         `json:"name"`
-	Image    string         `json:"image"`
-	State    State          `json:"state"`
-	Networks []*Network     `json:"networks"`
-	Volumes  []*Volume      `json:"volume"`
-	Ports    []string       `json:"ports"`
-	Streams  Streams        `json:"-"`
-	c        *client.Client `json:"-"`
+	ID       string              `json:"id"`
+	Names    string              `json:"name"`
+	Image    string              `json:"image"`
+	State    State               `json:"state"`
+	Networks []*Network          `json:"networks"`
+	Volumes  []*Volume           `json:"volume"`
+	Ports    map[string][]string `json:"ports"`
+	Streams  Streams             `json:"-"`
+	c        *client.Client      `json:"-"`
 }
 
 type State struct {
@@ -53,7 +53,7 @@ type Streams struct {
 }
 
 // Feed collects data from streamer and feeds them to tb
-func (s *Streams) Feed(done chan struct{}, cid string) {
+func (s *Streams) Feed(cid string) {
 	logrus.Debugln("- CONTAINER - starting feed")
 	metricsRcv, err := s.Metrics.Get(true)
 	if err != nil {
@@ -63,7 +63,7 @@ func (s *Streams) Feed(done chan struct{}, cid string) {
 	feederTicker := time.NewTicker(feederInterv)
 	for {
 		select {
-		case <-done:
+		case <-s.FeederDone:
 			return
 		case <-metricsRcv.Closing:
 			fmt.Println("feeder: rcv closing sig")
@@ -88,6 +88,7 @@ func (s *Streams) Feed(done chan struct{}, cid string) {
 func (s *Streams) Stop() error {
 	logrus.Debugln("- CONTAINER - stop: stopping streams and feeder")
 	s.FeederDone <- struct{}{}
+	fmt.Println("feeder done sent")
 
 	err := s.Metrics.Stop()
 	if err != nil {
@@ -109,9 +110,9 @@ func NewContainer(c *client.Client, cid string, feedIn chan interface{}) *Contai
 		ID:       cid,
 		Networks: make([]*Network, 0),
 		Volumes:  make([]*Volume, 0),
-		Ports:    make([]string, 0),
+		Ports:    make(map[string][]string),
 		Streams: Streams{
-			FeederDone: make(chan struct{}),
+			FeederDone: make(chan struct{}, 1),
 			FeedIn:     feedIn,
 		},
 		c: c,
@@ -135,12 +136,14 @@ func (cont *Container) prepare() <-chan error {
 	cont.Image = base.Image
 
 	// ports
-	// ports := make([]string, len(raw.Ports))
-	// for _, p := range raw.Ports {
-	// 	pFmt := fmt.Sprintf("%s:%d->%d/%s", p.IP, p.PublicPort, p.PrivatePort, p.Type)
-	// 	ports = append(ports, pFmt)
-	// }
-	cont.Ports = make([]string, 0)
+	ports := json.NetworkSettings.Ports
+	for port, binds := range ports {
+		p := fmt.Sprintf("%s/%s", port.Port(), port.Proto())
+		for _, b := range binds {
+			bFmt := fmt.Sprintf("%s:%s", b.HostIP, b.HostPort)
+			cont.Ports[p] = append(cont.Ports[p], bFmt)
+		}
+	}
 
 	// set state
 	cont.State = State{
@@ -178,7 +181,7 @@ func (cont *Container) Start() error {
 	logrus.Infoln("- CONTAINER - preparing...")
 	select {
 	case err := <-cont.prepare():
-		go cont.Streams.Feed(cont.Streams.FeederDone, cont.ID)
+		go cont.Streams.Feed(cont.ID)
 		return err
 	case <-time.After(8 * time.Second):
 		return errors.New("container start timed out")
