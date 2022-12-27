@@ -53,36 +53,44 @@ type Streams struct {
 }
 
 // Feed collects data from streamer and feeds them to tb
-func (s *Streams) Feed(cid string) {
+func (s *Streams) Feed(cid string) chan interface{} {
+	out := make(chan interface{})
+
 	logrus.Debugln("- CONTAINER - starting feed")
+
 	metricsRcv, err := s.Metrics.Get(true)
 	if err != nil {
-		return
+		close(out)
+		return out
 	}
 
-	feederTicker := time.NewTicker(feederInterv)
-	for {
-		select {
-		case <-s.FeederDone:
-			return
-		case <-metricsRcv.Closing:
-			fmt.Println("feeder: rcv closing sig")
-			return
-		case <-feederTicker.C:
-			fmt.Println("feeder tick")
-			set, ok := <-metricsRcv.In
-			if !ok {
-				fmt.Println("feeder: rcv in is closed")
+	go func() {
+		defer close(out)
+
+		feederTicker := time.NewTicker(feederInterv)
+		for {
+			select {
+			case <-s.FeederDone:
 				return
-			}
-			if metricsSet, ok := set.Data.(metrics.Set); ok {
-				s.FeedIn <- db.NewMetricsMod(cid, metricsSet.When, metricsSet)
-				logrus.Debugf("- Container - -> sending for cid: %s\n", cid)
-			} else {
-				logrus.Info("- LINK - failed to parse incomming interface to metrics.Set")
+			case <-metricsRcv.Closing:
+				return
+			case <-feederTicker.C:
+				set, ok := <-metricsRcv.In
+				if !ok {
+					fmt.Println("feeder: rcv in is closed")
+					return
+				}
+				if metricsSet, ok := set.Data.(metrics.Set); ok {
+					// s.FeedIn <- db.NewMetricsMod(cid, metricsSet.When, metricsSet)
+					out <- db.NewMetricsMod(cid, metricsSet.When, metricsSet)
+					logrus.Debugf("- Container - -> sending for cid: %s\n", cid)
+				} else {
+					logrus.Info("- LINK - failed to parse incomming interface to metrics.Set")
+				}
 			}
 		}
-	}
+	}()
+	return out
 }
 
 func (s *Streams) Stop() error {
@@ -112,7 +120,7 @@ func NewContainer(c *client.Client, cid string, feedIn chan interface{}) *Contai
 		Volumes:  make([]*Volume, 0),
 		Ports:    make(map[string][]string),
 		Streams: Streams{
-			FeederDone: make(chan struct{}, 1),
+			FeederDone: make(chan struct{}),
 			FeedIn:     feedIn,
 		},
 		c: c,
@@ -168,10 +176,8 @@ func (cont *Container) prepare() <-chan error {
 	}
 
 	// streams
-	cont.Streams = Streams{
-		Metrics: metrics.NewMetrics(cont.c, base.ID),
-		Logs:    logs.NewLogs(cont.c, base.ID),
-	}
+	cont.Streams.Metrics = metrics.NewMetrics(cont.c, base.ID)
+	cont.Streams.Logs = logs.NewLogs(cont.c, base.ID)
 
 	out <- err
 	return out
@@ -181,7 +187,11 @@ func (cont *Container) Start() error {
 	logrus.Infoln("- CONTAINER - preparing...")
 	select {
 	case err := <-cont.prepare():
-		go cont.Streams.Feed(cont.ID)
+		go func() {
+			for set := range cont.Streams.Feed(cont.ID) {
+				cont.Streams.FeedIn <- set
+			}
+		}()
 		return err
 	case <-time.After(8 * time.Second):
 		return errors.New("container start timed out")

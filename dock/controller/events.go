@@ -36,7 +36,6 @@ func (ev *Events) onStop(e events.Message) {
 		logrus.Infoln("- EVENTS - succesfully removed container based on [stop]")
 	}
 	ev.Inform(e)
-
 }
 
 func (ev *Events) onDestroy(e events.Message) {

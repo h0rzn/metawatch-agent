@@ -16,7 +16,7 @@ type Storage struct {
 	mutex      sync.Mutex
 	c          *client.Client
 	Containers map[*Container]bool
-	feed       chan interface{}
+	Feed       chan interface{}
 }
 
 func NewStorage(c *client.Client) *Storage {
@@ -24,7 +24,7 @@ func NewStorage(c *client.Client) *Storage {
 		mutex:      sync.Mutex{},
 		c:          c,
 		Containers: map[*Container]bool{},
-		feed:       make(chan interface{}),
+		Feed:       make(chan interface{}),
 	}
 }
 
@@ -70,7 +70,7 @@ func (s *Storage) Add(id string) (err error) {
 
 	// add unindexed container
 	s.mutex.Lock()
-	container := NewContainer(s.c, id, s.feed)
+	container := NewContainer(s.c, id, s.Feed)
 	err = container.Start()
 	if err != nil {
 		return
@@ -138,15 +138,19 @@ func (s *Storage) Broadcast() chan []interface{} {
 	go func() {
 		sendTick := time.NewTicker(5 * time.Second)
 		data := []interface{}{}
-		for {
+		for item := range s.Feed {
+			data = append(data, item)
+
 			select {
-			case item := <-s.feed:
-				data = append(data, item)
 			case <-sendTick.C:
-				out <- data
-				data = nil
+				if len(data) > 0 {
+					out <- data
+					data = nil
+				}
+			default:
 			}
 		}
+		close(out)
 	}()
 	return out
 }

@@ -41,6 +41,13 @@ func (s *Storage) Init() (err error) {
 		logrus.Errorf("- STORAGE - (containers) failed to init: %s\n", err)
 		return
 	}
+	go func() {
+		for items := range s.ContainerStore.Broadcast() {
+			fmt.Println("storage: snd bulkwrite")
+			go s.DB.Client.BulkWrite(items)
+		}
+		fmt.Println("feed writer left")
+	}()
 
 	err = s.ImageStore.Init()
 	if err != nil {
@@ -52,15 +59,6 @@ func (s *Storage) Init() (err error) {
 	if err != nil {
 		logrus.Errorf("- STORAGE - (db) failed to init: %s\n", err)
 	}
-
-	go func() {
-		containerFeed := s.ContainerStore.Broadcast()
-		for item := range containerFeed {
-			fmt.Println("storage: snd bulkwrite")
-			s.DB.Client.BulkWrite(item)
-		}
-		fmt.Println("feed writer left")
-	}()
 
 	return nil
 }
