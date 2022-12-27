@@ -187,14 +187,15 @@ func (cont *Container) Start() error {
 	logrus.Infoln("- CONTAINER - preparing...")
 	select {
 	case err := <-cont.prepare():
-		go func() {
-			for set := range cont.Streams.Feed(cont.ID) {
-				cont.Streams.FeedIn <- set
-			}
-		}()
 		return err
 	case <-time.After(8 * time.Second):
 		return errors.New("container start timed out")
+	}
+}
+
+func (cont *Container) RunFeed() {
+	for set := range cont.Streams.Feed(cont.ID) {
+		cont.Streams.FeedIn <- set
 	}
 }
 

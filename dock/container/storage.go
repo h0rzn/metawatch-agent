@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 	"github.com/sirupsen/logrus"
 )
@@ -33,7 +32,7 @@ func (s *Storage) Init() error {
 	raws, err := s.c.ContainerList(
 		ctx,
 		types.ContainerListOptions{
-			Filters: filters.Args{},
+			All: true,
 		},
 	)
 	if err != nil {
@@ -47,9 +46,7 @@ func (s *Storage) Init() error {
 			logrus.Errorf("- STORAGE - failed to add container: %s\n", err)
 			continue
 		}
-		logrus.Infoln("- STORAGE - added container")
 	}
-
 	return nil
 }
 
@@ -75,8 +72,22 @@ func (s *Storage) Add(id string) (err error) {
 	if err != nil {
 		return
 	}
-	s.Containers[container] = true
+
+	if container.State.Status == "running" {
+		s.Containers[container] = true
+		go container.RunFeed()
+	} else {
+		s.Containers[container] = false
+	}
 	s.mutex.Unlock()
+
+	logrus.Infof("- STORAGE - added %s container\n", container.State.Status)
+
+	return
+}
+
+func (s *Storage) Register(id string) (err error) {
+
 	return
 }
 
