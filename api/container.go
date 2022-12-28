@@ -9,10 +9,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-type KeepAliveMsg struct {
-	KeepAlive bool `json:"keep_alive"`
-}
-
 func (api *API) Container(ctx *gin.Context) {
 	id := ctx.Param("id")
 	cont, exists := api.Controller.Container(id)

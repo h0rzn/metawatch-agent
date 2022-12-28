@@ -122,6 +122,8 @@ func NewContainer(c *client.Client, cid string, feedIn chan interface{}) *Contai
 		Streams: Streams{
 			FeederDone: make(chan struct{}),
 			FeedIn:     feedIn,
+			Metrics:    metrics.NewMetrics(c, cid),
+			Logs:       logs.NewLogs(c, cid),
 		},
 		c: c,
 	}
@@ -175,10 +177,6 @@ func (cont *Container) prepare() <-chan error {
 		cont.Volumes = append(cont.Volumes, &Volume{Path: path})
 	}
 
-	// streams
-	cont.Streams.Metrics = metrics.NewMetrics(cont.c, base.ID)
-	cont.Streams.Logs = logs.NewLogs(cont.c, base.ID)
-
 	out <- err
 	return out
 }
@@ -206,23 +204,35 @@ func (cont *Container) Stop() error {
 
 func (cont *Container) MarshalJSON() ([]byte, error) {
 	type Alias Container
-	var currentMetrics metrics.Set
 
-	recv, err := cont.Streams.Metrics.Get(false)
-	if err != nil {
-		return []byte{}, err
+	if cont.State.Status == "running" {
+		// add current metrics to model
+		var currentMetrics metrics.Set
+
+		recv, err := cont.Streams.Metrics.Get(false)
+		if err != nil {
+			return []byte{}, err
+		}
+		defer recv.Close()
+		cur := <-recv.In
+
+		currentMetrics, ok := cur.Data.(metrics.Set)
+		if !ok {
+			currentMetrics = metrics.Set{}
+		}
+
+		return json.Marshal(&struct {
+			CurMetrics metrics.Set `json:"metrics"`
+			*Alias
+		}{
+			CurMetrics: currentMetrics,
+			Alias:      (*Alias)(cont),
+		})
 	}
-	for cur := range recv.In {
-		currentMetrics = cur.Data.(metrics.Set)
-		break
-	}
-	recv.Close()
 
 	return json.Marshal(&struct {
-		CurMetrics metrics.Set `json:"metrics"`
 		*Alias
 	}{
-		CurMetrics: currentMetrics,
-		Alias:      (*Alias)(cont),
+		Alias: (*Alias)(cont),
 	})
 }

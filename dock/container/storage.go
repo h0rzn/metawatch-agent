@@ -86,11 +86,6 @@ func (s *Storage) Add(id string) (err error) {
 	return
 }
 
-func (s *Storage) Register(id string) (err error) {
-
-	return
-}
-
 func (s *Storage) Stop(id string) error {
 	s.mutex.Lock()
 	if container, exists := s.Container(id); exists {
