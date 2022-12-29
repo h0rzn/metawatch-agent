@@ -37,14 +37,26 @@ func NewAPI(addr string) (*API, error) {
 	}, nil
 }
 
-func (api *API) RegRoutes() {
-	api.Router.Use(cors.Default())
-	api.Router.GET("/containers/:id", api.Container)
-	api.Router.GET("/containers/all", api.Containers)
-	api.Router.GET("/containers/:id/metrics", api.Metrics)
-	api.Router.GET("/stream", api.Stream)
+func (api *API) RegRoutes() error {
+	jwt, err := JWT()
+	if err != nil {
+		logrus.Errorf("- API - JWT init err: %s\n", err)
+		return err
+	}
 
-	api.Router.GET("/images", api.Images)
+	api.Router.Use(cors.Default())
+	api.Router.POST("/login", jwt.LoginHandler)
+	authed := api.Router.Group("/api")
+	authed.Use(jwt.MiddlewareFunc())
+	authed.GET("refresh_token", jwt.RefreshHandler)
+
+	authed.GET("/containers/:id", api.Container)
+	authed.GET("/containers/all", api.Containers)
+	authed.GET("/containers/:id/metrics", api.Metrics)
+	authed.GET("/stream", api.Stream)
+	authed.GET("/images", api.Images)
+
+	return nil
 }
 
 func (api *API) Run() {
