@@ -40,7 +40,6 @@ func NewAPI(addr string) (*API, error) {
 func (api *API) RegRoutes() error {
 	jwt, err := JWT()
 	if err != nil {
-		logrus.Errorf("- API - JWT init err: %s\n", err)
 		return err
 	}
 
@@ -53,8 +52,10 @@ func (api *API) RegRoutes() error {
 	authed.GET("/containers/:id", api.Container)
 	authed.GET("/containers/all", api.Containers)
 	authed.GET("/containers/:id/metrics", api.Metrics)
-	authed.GET("/stream", api.Stream)
 	authed.GET("/images", api.Images)
+
+	api.Router.GET("/stream", api.Stream)
+
 
 	return nil
 }
