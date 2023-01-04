@@ -9,6 +9,7 @@ import (
 
 	"github.com/docker/docker/client"
 	"github.com/h0rzn/monitoring_agent/dock/controller/db"
+	"github.com/h0rzn/monitoring_agent/dock/image"
 	"github.com/h0rzn/monitoring_agent/dock/logs"
 	"github.com/h0rzn/monitoring_agent/dock/metrics"
 	"github.com/sirupsen/logrus"
@@ -18,8 +19,10 @@ const feederInterv = 5 * time.Second
 
 type Container struct {
 	ID       string              `json:"id"`
-	Names    string              `json:"name"`
-	Image    string              `json:"image"`
+	Name     string              `json:"name"`
+	Image    image.Image         `json:"image"`
+	// function from image store to get image data by id
+	ImageGet ImageGet            `json:"-"`
 	State    State               `json:"state"`
 	Networks []*Network          `json:"networks"`
 	Volumes  []*Volume           `json:"volume"`
@@ -42,6 +45,7 @@ type Network struct {
 }
 
 type Volume struct {
+	Name string `json:"name"`
 	Path string `json:"path"`
 }
 
@@ -142,8 +146,16 @@ func (cont *Container) prepare() <-chan error {
 	}
 	base := json.ContainerJSONBase
 
-	cont.Names = base.Name
-	cont.Image = base.Image
+	cont.Name = base.Name
+
+	fmt.Println("search image")
+	img, exists := cont.ImageGet(base.Image)
+	fmt.Println("searched for image")
+	if !exists {
+		out <- fmt.Errorf("image %s not found", base.Image)
+		return out
+	}
+	cont.Image = *img
 
 	// ports
 	ports := json.NetworkSettings.Ports
@@ -200,6 +212,15 @@ func (cont *Container) RunFeed() {
 func (cont *Container) Stop() error {
 	logrus.Infoln("- CONTAINER - stop")
 	return cont.Streams.Stop()
+}
+
+func (cont *Container) MarshalBasic() ([]byte, error) {
+	type Alias Container
+	return json.Marshal(&struct {
+		*Alias
+	}{
+		Alias: (*Alias)(cont),
+	})
 }
 
 func (cont *Container) MarshalJSON() ([]byte, error) {

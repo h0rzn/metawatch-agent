@@ -2,20 +2,25 @@ package container
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
+	"github.com/h0rzn/monitoring_agent/dock/image"
 	"github.com/sirupsen/logrus"
 )
+
+type ImageGet func(string) (*image.Image, bool)
 
 type Storage struct {
 	mutex      sync.Mutex
 	c          *client.Client
 	Containers map[*Container]bool
 	Feed       chan interface{}
+	ImageGet   ImageGet
 }
 
 func NewStorage(c *client.Client) *Storage {
@@ -27,7 +32,10 @@ func NewStorage(c *client.Client) *Storage {
 	}
 }
 
-func (s *Storage) Init() error {
+func (s *Storage) Init(imgFunc ImageGet) error {
+	// make image retrieval availabe for containers
+	s.ImageGet = imgFunc
+
 	ctx := context.Background()
 	raws, err := s.c.ContainerList(
 		ctx,
@@ -67,7 +75,10 @@ func (s *Storage) Add(id string) (err error) {
 
 	// add unindexed container
 	s.mutex.Lock()
+
 	container := NewContainer(s.c, id, s.Feed)
+	container.ImageGet = s.ImageGet
+	fmt.Printf("IMAGE GET IN CONTAINER %+v\n", container.ImageGet)
 	err = container.Start()
 	if err != nil {
 		return
@@ -137,6 +148,21 @@ func (s *Storage) Items() (containers []*Container) {
 	}
 	s.mutex.Unlock()
 	return
+}
+
+func (s *Storage) ItemsJSON() []json.RawMessage {
+	raw := make([]json.RawMessage, 0)
+
+	for container := range s.Containers {
+		cur, err := container.MarshalBasic()
+		if err != nil {
+			cur = []byte([]byte(`{}`))
+		}
+		curM := json.RawMessage(cur)
+		raw = append(raw, curM)
+	}
+
+	return raw
 }
 
 func (s *Storage) Broadcast() chan []interface{} {

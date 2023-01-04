@@ -19,8 +19,10 @@ func (api *API) Container(ctx *gin.Context) {
 }
 
 func (api *API) Containers(ctx *gin.Context) {
-	containers := api.Controller.Storage.ContainerStore.Items()
-	ctx.JSON(http.StatusOK, containers)
+	// containers := api.Controller.Storage.ContainerStore.Items()
+	// ctx.JSON(http.StatusOK, containers)
+	raw := api.Controller.Storage.ContainerStore.ItemsJSON()
+	ctx.JSON(200, raw)
 }
 
 func (api *API) Metrics(ctx *gin.Context) {

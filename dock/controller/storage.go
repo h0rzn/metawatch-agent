@@ -36,7 +36,13 @@ func NewStorage(c *client.Client) *Storage {
 }
 
 func (s *Storage) Init() (err error) {
-	err = s.ContainerStore.Init()
+	err = s.ImageStore.Init()
+	if err != nil {
+		logrus.Errorf("- STORAGE - (images) failed to init: %s\n", err)
+		return
+	}
+
+	err = s.ContainerStore.Init(s.ImageStore.ByID)
 	if err != nil {
 		logrus.Errorf("- STORAGE - (containers) failed to init: %s\n", err)
 		return
@@ -48,12 +54,6 @@ func (s *Storage) Init() (err error) {
 		}
 		fmt.Println("feed writer left")
 	}()
-
-	err = s.ImageStore.Init()
-	if err != nil {
-		logrus.Errorf("- STORAGE - (images) failed to init: %s\n", err)
-		return
-	}
 
 	err = s.DB.Init()
 	if err != nil {
