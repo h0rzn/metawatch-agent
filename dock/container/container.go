@@ -18,17 +18,17 @@ import (
 const feederInterv = 5 * time.Second
 
 type Container struct {
-	ID       string              `json:"id"`
-	Name     string              `json:"name"`
-	Image    image.Image         `json:"image"`
+	ID    string      `json:"id"`
+	Name  string      `json:"name"`
+	Image image.Image `json:"image"`
 	// function from image store to get image data by id
-	ImageGet ImageGet            `json:"-"`
-	State    State               `json:"state"`
-	Networks []*Network          `json:"networks"`
-	Volumes  []*Volume           `json:"volume"`
-	Ports    map[string][]string `json:"ports"`
-	Streams  Streams             `json:"-"`
-	c        *client.Client      `json:"-"`
+	ImageGet ImageGet       `json:"-"`
+	State    State          `json:"state"`
+	Networks []*Network     `json:"networks"`
+	Volumes  []*Volume      `json:"volume"`
+	Ports    []*Port        `json:"ports"`
+	Streams  Streams        `json:"-"`
+	c        *client.Client `json:"-"`
 }
 
 type State struct {
@@ -47,6 +47,13 @@ type Network struct {
 type Volume struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
+}
+
+type Port struct {
+	Port     string `json:"port"`
+	Proto    string `json:"proto"`
+	HostIP   string `json:"host_ip"`
+	HostPort string `json:"host_port"`
 }
 
 type Streams struct {
@@ -122,7 +129,7 @@ func NewContainer(c *client.Client, cid string, feedIn chan interface{}) *Contai
 		ID:       cid,
 		Networks: make([]*Network, 0),
 		Volumes:  make([]*Volume, 0),
-		Ports:    make(map[string][]string),
+		Ports:    make([]*Port, 0),
 		Streams: Streams{
 			FeederDone: make(chan struct{}),
 			FeedIn:     feedIn,
@@ -148,9 +155,7 @@ func (cont *Container) prepare() <-chan error {
 
 	cont.Name = base.Name
 
-	fmt.Println("search image")
 	img, exists := cont.ImageGet(base.Image)
-	fmt.Println("searched for image")
 	if !exists {
 		out <- fmt.Errorf("image %s not found", base.Image)
 		return out
@@ -160,35 +165,16 @@ func (cont *Container) prepare() <-chan error {
 	// ports
 	ports := json.NetworkSettings.Ports
 	for port, binds := range ports {
-		p := fmt.Sprintf("%s/%s", port.Port(), port.Proto())
 		for _, b := range binds {
-			bFmt := fmt.Sprintf("%s:%s", b.HostIP, b.HostPort)
-			cont.Ports[p] = append(cont.Ports[p], bFmt)
+			p := &Port{
+				Port:     port.Port(),
+				Proto:    port.Proto(),
+				HostIP:   b.HostIP,
+				HostPort: b.HostPort,
+			}
+			cont.Ports = append(cont.Ports, p)
 		}
 	}
-
-	// set state
-	cont.State = State{
-		Status:        base.State.Status,
-		Started:       base.State.StartedAt,
-		RestartPolicy: base.HostConfig.RestartPolicy.Name,
-	}
-
-	// networks
-	for name, eps := range json.NetworkSettings.Networks {
-		net := &Network{
-			Name:    name,
-			Aliases: eps.Aliases,
-			IPAddr:  eps.IPAddress,
-		}
-		cont.Networks = append(cont.Networks, net)
-	}
-
-	// volumes
-	for path := range json.Config.Volumes {
-		cont.Volumes = append(cont.Volumes, &Volume{Path: path})
-	}
-
 	out <- err
 	return out
 }

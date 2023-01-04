@@ -2,7 +2,6 @@ package image
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/docker/docker/api/types"
@@ -95,11 +94,10 @@ func (s *Storage) Remove(id string) error {
 }
 
 func (s *Storage) UpdateUsedBy() {
-	
+
 }
 
 func (s *Storage) ByID(id string) (*Image, bool) {
-	fmt.Println("getting image by id")
 	for img := range s.Images {
 		if img.ID == id {
 			return img, true

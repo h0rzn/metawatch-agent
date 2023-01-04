@@ -78,7 +78,6 @@ func (s *Storage) Add(id string) (err error) {
 
 	container := NewContainer(s.c, id, s.Feed)
 	container.ImageGet = s.ImageGet
-	fmt.Printf("IMAGE GET IN CONTAINER %+v\n", container.ImageGet)
 	err = container.Start()
 	if err != nil {
 		return
