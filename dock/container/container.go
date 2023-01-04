@@ -155,12 +155,35 @@ func (cont *Container) prepare() <-chan error {
 
 	cont.Name = base.Name
 
+	// image
 	img, exists := cont.ImageGet(base.Image)
 	if !exists {
 		out <- fmt.Errorf("image %s not found", base.Image)
 		return out
 	}
 	cont.Image = *img
+
+	// state
+	cont.State = State{
+		Status:        base.State.Status,
+		Started:       base.State.StartedAt,
+		RestartPolicy: base.HostConfig.RestartPolicy.Name,
+	}
+
+	// networks
+	networks := json.NetworkSettings.Networks
+	for net, eps := range networks {
+		n := &Network{
+			Name:    net,
+			ID:      eps.EndpointID,
+			Aliases: eps.Aliases,
+			IPAddr:  eps.IPAddress,
+		}
+		cont.Networks = append(cont.Networks, n)
+	}
+
+	// volumes
+	
 
 	// ports
 	ports := json.NetworkSettings.Ports
