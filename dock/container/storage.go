@@ -140,28 +140,16 @@ func (s *Storage) Container(id string) (*Container, bool) {
 	return &Container{}, false
 }
 
-func (s *Storage) Items() (containers []*Container) {
-	s.mutex.Lock()
-	for container := range s.Containers {
-		containers = append(containers, container)
-	}
-	s.mutex.Unlock()
-	return
-}
-
-func (s *Storage) ItemsJSON() []json.RawMessage {
-	raw := make([]json.RawMessage, 0)
+func (s *Storage) MarshalJSON() ([]byte, error) {
+	var containersRaw []json.RawMessage
 
 	for container := range s.Containers {
-		cur, err := container.MarshalBasic()
-		if err != nil {
-			cur = []byte([]byte(`{}`))
+		if basic, err := container.MarshalBasic(); err == nil {
+			containersRaw = append(containersRaw, json.RawMessage(basic))
 		}
-		curM := json.RawMessage(cur)
-		raw = append(raw, curM)
 	}
 
-	return raw
+	return json.Marshal(containersRaw)
 }
 
 func (s *Storage) Broadcast() chan []interface{} {
