@@ -119,7 +119,7 @@ func (h *Hub) BroadcastEvent(e events.Message) {
 }
 
 func (h *Hub) CreateRessource(cid, typ string) (err error) {
-	container, exists := h.Ctr.Container(cid)
+	container, exists := h.Ctr.Storage.ContainerStore.Container(cid)
 	if !exists {
 		return errors.New("container doesnt exist")
 	}
@@ -136,7 +136,7 @@ func (h *Hub) CreateRessource(cid, typ string) (err error) {
 }
 
 func (h *Hub) Ressource(cid string, event string) (r *Ressource, exists bool) {
-	container, exists := h.Ctr.Container(cid)
+	container, exists := h.Ctr.Storage.ContainerStore.Container(cid)
 	if !exists {
 		fmt.Println("res: container doesnt exist")
 		return r, false
@@ -162,7 +162,7 @@ func (h *Hub) ClientLeave(c *Client) {
 }
 
 func (h *Hub) RessourceLeave(res *Ressource) {
-	container, exists := h.Ctr.Container(res.container.ID)
+	container, exists := h.Ctr.Storage.ContainerStore.Container(res.container.ID)
 	if exists {
 		h.RemoveRessource(container, res)
 	}

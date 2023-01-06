@@ -12,7 +12,7 @@ import (
 // /container/:id endpoint for fetching single container by id
 func (api *API) Container(ctx *gin.Context) {
 	id := ctx.Param("id")
-	if container, exists := api.Controller.Container(id); exists {
+	if container, exists := api.Controller.Storage.ContainerStore.Container(id); exists {
 		ctx.JSON(http.StatusOK, container)
 	} else {
 		HttpErr(ctx, http.StatusNotFound, errors.New("container not found"))
