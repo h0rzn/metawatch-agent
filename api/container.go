@@ -9,19 +9,23 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
+// /container/:id endpoint for fetching single container by id
 func (api *API) Container(ctx *gin.Context) {
 	id := ctx.Param("id")
-	cont, exists := api.Controller.Container(id)
-	if !exists {
+	if container, exists := api.Controller.Container(id); exists {
+		ctx.JSON(http.StatusOK, container)
+	} else {
 		HttpErr(ctx, http.StatusNotFound, errors.New("container not found"))
 	}
-	ctx.JSON(http.StatusOK, cont)
 }
 
+// /containers/all endpoint for fetching all containers
 func (api *API) Containers(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, api.Controller.Storage.ContainerStore)
 }
 
+// /container/:id/metrics?from=X&to=Y endpoint for fetching container metrics
+// between X and Y
 func (api *API) Metrics(ctx *gin.Context) {
 	id := ctx.Param("id")
 	query := ctx.Request.URL.Query()
@@ -54,18 +58,15 @@ func (api *API) Metrics(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, result[id])
 }
 
+// /stream endpoint for accessing the websocket that supplies
+// live metrics, logs and events
 func (api *API) Stream(ctx *gin.Context) {
-	api.StreamWS(ctx.Writer, ctx.Request)
-}
-
-func (api *API) StreamWS(w http.ResponseWriter, r *http.Request) {
-	con, err := upgrade.Upgrade(w, r, nil)
+	con, err := upgrade.Upgrade(ctx.Writer, ctx.Request, nil)
 	if err != nil {
 		errBytes, _ := HttpErrBytes(500, err)
-		w.Write(errBytes)
+		ctx.Writer.Write(errBytes)
 		return
 	}
-
 	client := api.Hub.CreateClient(con)
 	client.Run()
 }

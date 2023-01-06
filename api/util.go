@@ -7,9 +7,10 @@ import (
 )
 
 func HttpErr(ctx *gin.Context, code int, err error) {
-	errMap := make(map[string]interface{})
-	errMap["code"] = code
-	errMap["message"] = err.Error()
+	errMap := map[string]interface{}{
+		"code": code,
+		"message": err.Error(),
+	}
 	ctx.JSON(code, errMap)
 }
 
