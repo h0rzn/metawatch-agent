@@ -3,11 +3,14 @@ package hub
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/h0rzn/monitoring_agent/dock/container"
 	"github.com/h0rzn/monitoring_agent/dock/stream"
 	"github.com/sirupsen/logrus"
 )
+
+const RessourceTimeout = 10 * time.Minute
 
 type Ressource struct {
 	mutex       *sync.RWMutex
@@ -19,6 +22,9 @@ type Ressource struct {
 	LveSig      chan *Ressource
 	done        chan struct{}
 	Subscribers map[*Client]bool
+	TOActive    bool
+	TOFired     chan struct{}
+	TOStop      chan struct{}
 }
 
 func NewRessource(container *container.Container, event string, lveSig chan *Ressource) *Ressource {
@@ -31,6 +37,9 @@ func NewRessource(container *container.Container, event string, lveSig chan *Res
 		LveSig:      lveSig,
 		done:        make(chan struct{}),
 		Subscribers: make(map[*Client]bool),
+		TOActive:    false,
+		TOFired:     make(chan struct{}),
+		TOStop:      make(chan struct{}),
 	}
 }
 
@@ -63,7 +72,6 @@ func (r *Ressource) Handle() {
 		case client := <-r.Add:
 			r.addClient(client)
 		case client := <-r.Rm:
-
 			r.rmClient(client)
 		case set, ok := <-r.Receiver.In:
 			if !ok {
@@ -92,6 +100,10 @@ func (r *Ressource) broadcast(set stream.Set) {
 func (r *Ressource) addClient(c *Client) {
 	logrus.Debugln("- RESSOURCE - adding client")
 	r.mutex.Lock()
+	if r.TOActive {
+		logrus.Infoln("- RESSOURCE - timeout stopeed (new client)")
+		r.TOStop <- struct{}{}
+	}
 	r.Subscribers[c] = true
 	r.mutex.Unlock()
 }
@@ -103,12 +115,34 @@ func (r *Ressource) rmClient(c *Client) {
 		logrus.Errorf("- RESSOURCE - client close err: %s\n", err)
 	}
 	delete(r.Subscribers, c)
-	
+
 	if len(r.Subscribers) == 0 {
-		r.Receiver.Close()
-		r.LveSig <- r
+		if !r.TOActive {
+			go r.Timeout()
+		}
 	}
 	r.mutex.Unlock()
+}
+
+func (r *Ressource) Timeout() {
+	r.mutex.Lock()
+	r.TOActive = true
+	r.mutex.Unlock()
+
+	for {
+		timer := time.NewTimer(RessourceTimeout)
+		select {
+		case <-r.TOStop:
+			timer.Stop()
+			r.mutex.Lock()
+			r.TOActive = false
+			r.mutex.Unlock()
+			return
+		case <-timer.C:
+			logrus.Infoln("- RESSOURCE - timeout after 10min -> quit")
+			r.Quit()
+		}
+	}
 }
 
 func (r *Ressource) Quit() {
