@@ -70,7 +70,4 @@ func (api *API) StreamWS(w http.ResponseWriter, r *http.Request) {
 	client.Run()
 }
 
-func (api *API) Images(ctx *gin.Context) {
-	images := api.Controller.Storage.ImageStore.Items()
-	ctx.JSON(http.StatusOK, images)
-}
+

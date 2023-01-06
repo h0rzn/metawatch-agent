@@ -2,6 +2,7 @@ package image
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 
 	"github.com/docker/docker/api/types"
@@ -93,10 +94,6 @@ func (s *Storage) Remove(id string) error {
 	return nil
 }
 
-func (s *Storage) UpdateUsedBy() {
-
-}
-
 func (s *Storage) ByID(id string) (*Image, bool) {
 	for img := range s.Images {
 		if img.ID == id {
@@ -122,4 +119,13 @@ func (s *Storage) Items() (images []*Image) {
 	}
 	s.mutex.Unlock()
 	return
+}
+
+func (s *Storage) MarshalJSON() ([]byte, error) {
+	var images []*Image
+	for img := range s.Images {
+		images = append(images, img)
+	}
+
+	return json.Marshal(images)
 }
