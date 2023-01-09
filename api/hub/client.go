@@ -18,7 +18,7 @@ type Request struct {
 }
 
 type Response struct {
-	CID     string      `json:"container_id"`
+	CID     string      `json:"container_id,omitempty"`
 	Type    string      `json:"type"`
 	Message interface{} `json:"message"`
 }
