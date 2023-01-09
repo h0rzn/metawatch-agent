@@ -1,38 +1,33 @@
 package hub
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 
-	"github.com/docker/docker/api/types/events"
 	"github.com/gorilla/websocket"
-	"github.com/h0rzn/monitoring_agent/dock/container"
 	"github.com/h0rzn/monitoring_agent/dock/controller"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/exp/slices"
 )
 
 type Hub struct {
-	mutex    *sync.RWMutex
-	Sub      chan *Demand
-	USub     chan *Demand
-	Lve      chan *Client
-	ResLeave chan *Ressource
-
-	Ctr        *controller.Controller
-	Ressources map[*container.Container][]*Ressource
+	mutex     *sync.RWMutex
+	Sub       chan *Demand
+	USub      chan *Demand
+	Lve       chan *Client
+	Ctr       *controller.Controller
+	Resources map[Resource]bool
+	LveSig    chan Resource
 }
 
 func NewHub(ctr *controller.Controller) *Hub {
 	return &Hub{
-		mutex:      &sync.RWMutex{},
-		Ctr:        ctr,
-		Ressources: make(map[*container.Container][]*Ressource),
-		Sub:        make(chan *Demand),
-		USub:       make(chan *Demand),
-		Lve:        make(chan *Client),
-		ResLeave:   make(chan *Ressource),
+		mutex:     &sync.RWMutex{},
+		Ctr:       ctr,
+		Resources: make(map[Resource]bool),
+		Sub:       make(chan *Demand),
+		USub:      make(chan *Demand),
+		Lve:       make(chan *Client),
+		LveSig:    make(chan Resource),
 	}
 }
 
@@ -40,132 +35,128 @@ func (h *Hub) CreateClient(con *websocket.Conn) *Client {
 	return NewClient(con, h.Sub, h.USub, h.Lve)
 }
 
-func (h *Hub) RemoveRessource(c *container.Container, r *Ressource) {
-	logrus.Infof("- HUB - removed ressource %s for %s\n", r.Event, c.ID)
-	if len(r.Subscribers) == 0 {
-		ressources := h.Ressources[c]
-		rIdx := slices.Index(ressources, r)
-		if rIdx > -1 {
-			h.mutex.Lock()
+func (h *Hub) CreateGeneric(cid, typ string) error {
+	fmt.Println("creating generic")
+	if container, exists := h.Ctr.Containers.Container(cid); exists {
+		fmt.Println("container exists")
+		r := NewGenericR(typ, container, h.LveSig)
+		fmt.Println("new generic created")
+		h.Resources[r] = true
+		err := r.Run()
+		if err != nil {
+			return err
+		}
+		fmt.Println("new generic running")
+		return nil
+	}
+	return fmt.Errorf("cannot find container %s", cid)
+}
 
-			// zero out + remove ressource
-			h.Ressources[c][rIdx] = &Ressource{}
-			h.Ressources[c] = append(ressources[:rIdx], ressources[rIdx+1:]...)
-			h.mutex.Unlock()
+func (h *Hub) CreateEvents() error {
+	if !h.hasEventR() {
+		r := NewEventsR(h.Ctr.Events.Get, h.LveSig)
+		h.Resources[r] = true
+		err := r.Run()
+		if err != nil {
+			return err
 		}
 	}
+	return nil
+}
+
+func (h *Hub) hasEventR() bool {
+	for r := range h.Resources {
+		if r.Type() == "event" {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Hub) Subscribe(dem *Demand) {
-	logrus.Infoln("- HUB - subscribe")
+	logrus.Infoln("- HUB - Subscribe")
 	h.mutex.Lock()
-	res, exists := h.Ressource(dem.CID, dem.Ressource)
-	if !exists {
-		fmt.Println("res sub: res does not exist create new one")
-		err := h.CreateRessource(dem.CID, dem.Ressource)
-		if err != nil {
-			logrus.Errorf("- HUB - failed to create ressource: %s\n", err)
-			dem.Client.Error(err.Error())
-			return
+	if res, exists := h.Resource(dem.CID, dem.Ressource); exists {
+		fmt.Println("resource exists: adding client")
+		res.Add(dem.Client)
+	} else {
+		fmt.Println("resource does not exist: create resource + adding client")
+		// create new resource
+		switch dem.Ressource {
+		case "metrics", "logs":
+			err := h.CreateGeneric(dem.CID, dem.Ressource)
+			if err != nil {
+				dem.Client.Error(err.Error())
+				break
+			}
+			fmt.Println("attempt to add client to generic")
+			if r, exists := h.Resource(dem.CID, dem.Ressource); exists {
+				fmt.Println("recheck: resource exists")
+				r.Add(dem.Client)
+			}
+		case "events":
+			fmt.Println("attempt to create eventsr")
+			err := h.CreateEvents()
+			if err != nil {
+				fmt.Println("eventsr create err", err)
+				dem.Client.Error(err.Error())
+				break
+			}
+			fmt.Println("create events err", err)
+			if r, exists := h.Resource(dem.CID, dem.Ressource); exists {
+				fmt.Println("eventsr exists add client")
+				r.Add(dem.Client)
+				fmt.Println("eventsr client added")
+			}
+			fmt.Println("events doesnt exist")
+		default:
+			dem.Client.Error(fmt.Sprintf("cannot create resource, container %s or type %s does not exist", dem.CID, dem.Ressource))
 		}
-		fresh, _ := h.Ressource(dem.CID, dem.Ressource)
-		h.mutex.Unlock()
-		fresh.Add <- dem.Client
-		return
 	}
 	h.mutex.Unlock()
-	res.Add <- dem.Client
+
 }
 
 func (h *Hub) Unsubscribe(dem *Demand) {
+	logrus.Infoln("- HUB - Unsubscribe")
 	h.mutex.Lock()
-	defer h.mutex.Unlock()
-	res, exists := h.Ressource(dem.CID, dem.Ressource)
-	if !exists {
-		logrus.Errorln("- HUB - failed to unsubscribe ressource: doesnt exist")
-		// send client error message
-		return
-	}
-	res.Rm <- dem.Client
-}
-
-func (h *Hub) BroadcastEvent(e events.Message) {
-	logrus.Infoln("- HUB - broadcasting event message to all clients")
-
-	// clients that already received that event
-	var received map[*Client]bool
-
-	eventMsg := map[string]string{
-		"event_type": e.Action,
-	}
-	event := &Response{
-		CID:     e.ID,
-		Type:    "container_event",
-		Message: eventMsg,
-	}
-
-	h.mutex.Lock()
-	for _, ressources := range h.Ressources {
-		for i := range ressources {
-			for receiver := range ressources[i].Subscribers {
-				if _, exists := received[receiver]; !exists {
-					receiver.In <- event
-				}
-			}
-		}
+	if r, exists := h.Resource(dem.CID, dem.Ressource); exists {
+		r.Rm(dem.Client)
+	} else {
+		dem.Client.Error("failed to unsubscribe, resource not found")
 	}
 	h.mutex.Unlock()
-
 }
 
-func (h *Hub) CreateRessource(cid, typ string) (err error) {
-	container, exists := h.Ctr.Storage.ContainerStore.Container(cid)
-	if !exists {
-		return errors.New("container doesnt exist")
-	}
-
-	r := NewRessource(container, typ, h.ResLeave)
-	h.Ressources[container] = append(h.Ressources[container], r)
-	err = r.Init()
-	if err != nil {
-		return
-	}
-	go r.Handle()
-
-	return
+func (h *Hub) Remove(r Resource) {
+	r.Quit()
+	h.mutex.Lock()
+	delete(h.Resources, r)
+	h.mutex.Unlock()
 }
 
-func (h *Hub) Ressource(cid string, event string) (r *Ressource, exists bool) {
-	container, exists := h.Ctr.Storage.ContainerStore.Container(cid)
-	if !exists {
-		fmt.Println("res: container doesnt exist")
-		return r, false
-	}
-	ressources, found := h.Ressources[container]
-	if found {
-		for i := range ressources {
-			if ressources[i].container.ID == cid && ressources[i].Event == event {
-				return ressources[i], true
-			}
+func (h *Hub) Resource(cid string, event string) (r Resource, exists bool) {
+	for res := range h.Resources {
+		fmt.Println("trying to identify")
+		if res.CID() == cid && res.Type() == event {
+			fmt.Println("resource found")
+			return res, true
 		}
 	}
-	return r, false
+	return
 }
 
 func (h *Hub) ClientLeave(c *Client) {
 	fmt.Println("client leave")
-	for _, ressources := range h.Ressources {
-		for _, res := range ressources {
-			res.Rm <- c
-		}
+	for r := range h.Resources {
+		r.Rm(c)
 	}
 }
 
-func (h *Hub) RessourceLeave(res *Ressource) {
-	container, exists := h.Ctr.Storage.ContainerStore.Container(res.container.ID)
-	if exists {
-		h.RemoveRessource(container, res)
-	}
+func (h *Hub) RessourceLeave(res Resource) {
+	h.mutex.Lock()
+	delete(h.Resources, res)
+	h.mutex.Unlock()
 	logrus.Infoln("- HUB - ressource removed")
 }
 
@@ -180,7 +171,7 @@ func (h *Hub) Run() {
 		case client := <-h.Lve:
 			fmt.Println("hub rcvd client leave")
 			h.ClientLeave(client)
-		case res := <-h.ResLeave:
+		case res := <-h.LveSig:
 			h.RessourceLeave(res)
 		}
 	}
