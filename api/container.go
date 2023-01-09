@@ -12,7 +12,7 @@ import (
 // /container/:id endpoint for fetching single container by id
 func (api *API) Container(ctx *gin.Context) {
 	id := ctx.Param("id")
-	if container, exists := api.Controller.Storage.ContainerStore.Container(id); exists {
+	if container, exists := api.Controller.Containers.Container(id); exists {
 		ctx.JSON(http.StatusOK, container)
 	} else {
 		HttpErr(ctx, http.StatusNotFound, errors.New("container not found"))
@@ -21,7 +21,7 @@ func (api *API) Container(ctx *gin.Context) {
 
 // /containers/all endpoint for fetching all containers
 func (api *API) Containers(ctx *gin.Context) {
-	ctx.JSON(http.StatusOK, api.Controller.Storage.ContainerStore)
+	ctx.JSON(http.StatusOK, api.Controller.Containers)
 }
 
 // /container/:id/metrics?from=X&to=Y endpoint for fetching container metrics
@@ -52,7 +52,7 @@ func (api *API) Metrics(ctx *gin.Context) {
 	tminP := primitive.NewDateTimeFromTime(tmin)
 	tmaxP := primitive.NewDateTimeFromTime(tmax)
 
-	result := api.Controller.Storage.DB.Metrics(id, tminP, tmaxP)
+	result := api.Controller.DB.Metrics(id, tminP, tmaxP)
 	// fmt.Println(result[id])
 
 	ctx.JSON(http.StatusOK, result[id])

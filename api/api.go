@@ -54,7 +54,7 @@ func (api *API) Run() {
 		return
 	}
 	go api.Hub.Run()
-	api.Controller.Storage.Events.SetInformer(api.Hub.BroadcastEvent)
+	// api.Controller.Storage.Events.SetInformer(api.Hub.BroadcastEvent)
 	logrus.Infoln("- API - starting gin router")
 	api.Router.Run(api.Addr)
 }

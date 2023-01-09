@@ -3,7 +3,6 @@ package stream
 import (
 	"errors"
 	"fmt"
-	"io"
 	"sync"
 	"time"
 )
@@ -13,7 +12,6 @@ const IntervDur time.Duration = 5 * time.Second
 
 type Str struct {
 	mutex   *sync.RWMutex
-	Src     io.ReadCloser
 	Pipe    Pipeline
 	Strg    *Storage
 	Closing bool
