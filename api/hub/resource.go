@@ -212,9 +212,11 @@ func (r *EventsR) Broadcast(set stream.Set) {
 		fmt.Println("type assert failed")
 	}
 	msg := &Response{
-		CID:     event.ID,
-		Type:    "event",
-		Message: "container_start",
+		Type: "event",
+		Message: map[string]interface{}{
+			"type": fmt.Sprintf("%s_%s", event.Type, event.Status),
+			"id":   event.ID,
+		},
 	}
 	fmt.Println("sending to clients, len", len(r.Subs))
 	r.mutex.Lock()
