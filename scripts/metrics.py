@@ -1,19 +1,13 @@
 #!/usr/bin/python3
-import requests 
-from datetime import datetime
-from datetime import timedelta
-
+import requests
+import json
 
 if __name__ == "__main__":
-
-    td = timedelta(seconds=30)
-    now = datetime.now()
-    tst = now - td
     params = {
-        "from": tst
+        "from": "2022-12-15T13:00:00Z",
+        "to": "2022-12-15T13:30:00Z"
     }
-    print(params["from"])
 
-    r = requests.get("http://localhost:8080/containers/e63d12ed9e74cb2d5994e9e0356aad7588939108fb2a1e5ec729274e07e820bf/metrics", params=params)
+    r = requests.get("http://localhost:8080/containers/61ef6dda76c9aa7e354d7cce951f27d3dff68f2e17c0ca86644ba8885de522d0/metrics", params=params)
     print(r.status_code)
-    print(r.content)
+    print(json.dumps(r.json(), indent=4))

@@ -8,8 +8,8 @@ import requests
 from sys import exit
 from datetime import datetime
 
-until_usub = 25
-CID = "76a659815abee87bd511219ca08df6f7107b83e69f766726a04adc38a72f64e4"
+until_usub = 5
+CID = "fdaaaa9dcace802715dbb865eb784bf6b8aa48de9d8a425ca11a472edc72d240"
 TYPE = "metrics"
 
 sub = {
@@ -30,20 +30,24 @@ async def run():
     print("[SND]", json.dumps(sub))
     await ws.send(json.dumps(sub))
     
-    # start_time = time.time()
-    # while True:
-    #   cur_time = time.time()
-    #   elap_time = cur_time - start_time
-
-    #   if elap_time > until_usub:
-    #     print("\n[USUB]\n")
-    #     await ws.send(json.dumps(usub))
-    #     break
+    start_time = time.time()
     while True:
+      cur_time = time.time()
+      elap_time = cur_time - start_time
+
       res = await ws.recv()
 
       cur = datetime.now().strftime("%H:%M:%S")
       print("RCV", cur, res)
+
+      if elap_time > until_usub:
+        print("\n[USUB]\n")
+        await ws.send(json.dumps(usub))
+        print("sleeping...")
+        time.sleep(3)
+        print("continue handle")
+      
+
     
 
 
