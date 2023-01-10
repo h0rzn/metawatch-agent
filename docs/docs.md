@@ -1,9 +1,23 @@
 # Documentation
 
 ## API
-/containers/:id
-/containers/:id/metrics?from=X&to=Y
-/containers/all
+#### /containers/:id
+#### /containers/:id/metrics?from=X&to=Y
+#### /containers/all
+
+#### /images/all
+#### /image/:id
+
+#### /about
+```
+{
+  "version": "20.10.21",
+  "api_version": "1.41",
+  "os": "linux",
+  "image_n": 12,
+  "container_n": 7
+}
+```
 
 ## Hub
 - resources will be deleted after 10min if not used (no subs)

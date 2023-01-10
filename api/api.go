@@ -45,6 +45,8 @@ func (api *API) RegRoutes() {
 	api.Router.GET("/stream", api.Stream)
 
 	api.Router.GET("/images", api.Images)
+
+	api.Router.GET("/about", api.About)
 }
 
 func (api *API) Run() {

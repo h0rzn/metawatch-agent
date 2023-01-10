@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"fmt"
 
 	dock_events "github.com/docker/docker/api/types/events"
@@ -16,9 +17,40 @@ type Controller struct {
 	c *client.Client
 	// Storage    *Storage
 	DB         *db.DB
+	About      *About
 	Events     *events.Events
 	Containers *container.Storage
 	Images     *image.Storage
+}
+
+type About struct {
+	Version    string `json:"version"`
+	APIVersion string `json:"api_version"`
+	OS         string `json:"os"`
+	ImageN     int    `json:"image_n"`
+	ContainerN int    `json:"container_n"`
+	// Plugins?
+}
+
+func (i *About) Update(c *client.Client) (err error) {
+	ctx := context.Background()
+	version, err := c.ServerVersion(ctx)
+	if err != nil {
+		return
+	}
+	i.Version = version.Version
+	i.APIVersion = version.APIVersion
+	i.OS = version.Os
+
+	ctx = context.Background()
+	info, err := c.Info(ctx)
+	if err != nil {
+		return
+	}
+	i.ImageN = info.Images
+	i.ContainerN = info.Containers
+
+	return
 }
 
 func NewController() (ctr *Controller, err error) {
@@ -30,6 +62,7 @@ func NewController() (ctr *Controller, err error) {
 	return &Controller{
 		c:          c,
 		DB:         &db.DB{},
+		About:      &About{},
 		Events:     events.NewEvents(c),
 		Containers: container.NewStorage(c),
 		Images:     image.NewStorage(c),
@@ -38,6 +71,11 @@ func NewController() (ctr *Controller, err error) {
 
 func (ctr *Controller) Init() (err error) {
 	logrus.Infoln("- CONTROLLER - starting")
+	err = ctr.About.Update(ctr.c)
+	if err != nil {
+		logrus.Warnf("- CONTROLLER - about might not be complete, err: %s\n", err)
+	}
+
 	err = ctr.Events.Init()
 	if err != nil {
 		return err
@@ -94,7 +132,7 @@ func (ctr *Controller) HandleEvents() {
 		default:
 			logrus.Warnf("- CONTROLLER - event %s is unkown or not implemented\n", event.Status)
 		}
-
+		ctr.About.Update(ctr.c)
 	}
 }
 
