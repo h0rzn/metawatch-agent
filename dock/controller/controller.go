@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	dock_events "github.com/docker/docker/api/types/events"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 	"github.com/h0rzn/monitoring_agent/dock/container"
 	"github.com/h0rzn/monitoring_agent/dock/controller/db"
@@ -18,6 +19,7 @@ type Controller struct {
 	// Storage    *Storage
 	DB         *db.DB
 	About      *About
+	Volumes    []*Volume
 	Events     *events.Events
 	Containers *container.Storage
 	Images     *image.Storage
@@ -29,28 +31,14 @@ type About struct {
 	OS         string `json:"os"`
 	ImageN     int    `json:"image_n"`
 	ContainerN int    `json:"container_n"`
-	// Plugins?
 }
-
-func (i *About) Update(c *client.Client) (err error) {
-	ctx := context.Background()
-	version, err := c.ServerVersion(ctx)
-	if err != nil {
-		return
-	}
-	i.Version = version.Version
-	i.APIVersion = version.APIVersion
-	i.OS = version.Os
-
-	ctx = context.Background()
-	info, err := c.Info(ctx)
-	if err != nil {
-		return
-	}
-	i.ImageN = info.Images
-	i.ContainerN = info.Containers
-
-	return
+type Volume struct {
+	Name       string `json:"name"`
+	Mountpoint string `json:"mountpoint"`
+	Driver     string `json:"driver"`
+	Created    string `json:"created"`
+	UsedBy     int64  `json:"used_by"` // used by containers
+	Size       int64  `json:"size"`
 }
 
 func NewController() (ctr *Controller, err error) {
@@ -63,6 +51,7 @@ func NewController() (ctr *Controller, err error) {
 		c:          c,
 		DB:         &db.DB{},
 		About:      &About{},
+		Volumes:    make([]*Volume, 0),
 		Events:     events.NewEvents(c),
 		Containers: container.NewStorage(c),
 		Images:     image.NewStorage(c),
@@ -71,9 +60,14 @@ func NewController() (ctr *Controller, err error) {
 
 func (ctr *Controller) Init() (err error) {
 	logrus.Infoln("- CONTROLLER - starting")
-	err = ctr.About.Update(ctr.c)
+	err = ctr.UpdateAbout()
 	if err != nil {
 		logrus.Warnf("- CONTROLLER - about might not be complete, err: %s\n", err)
+	}
+
+	err = ctr.UpdateVolumes()
+	if err != nil {
+		logrus.Warnf("- CONTROLLER - volumes might not be complete, err: %s\n", err)
 	}
 
 	err = ctr.Events.Init()
@@ -107,6 +101,59 @@ func (ctr *Controller) Init() (err error) {
 	return err
 }
 
+func (ctr *Controller) UpdateAbout() (err error) {
+	ctx := context.Background()
+	version, err := ctr.c.ServerVersion(ctx)
+	if err != nil {
+		return
+	}
+	ctr.About.Version = version.Version
+	ctr.About.APIVersion = version.APIVersion
+	ctr.About.OS = version.Os
+
+	ctx = context.Background()
+	info, err := ctr.c.Info(ctx)
+	if err != nil {
+		return
+	}
+	ctr.About.ImageN = info.Images
+	ctr.About.ContainerN = info.Containers
+
+	return
+}
+
+func (ctr *Controller) UpdateVolumes() (err error) {
+	ctx := context.Background()
+	volList, err := ctr.c.VolumeList(ctx, filters.Args{})
+	if err != nil {
+		return
+	}
+
+	updated := make([]*Volume, 0)
+	for _, v := range volList.Volumes {
+		// for some reason usage data can be nil
+		var usedBy, size int64
+		if v.UsageData == nil {
+			usedBy, size = -1, -1
+		} else {
+			usedBy = v.UsageData.RefCount
+			size = v.UsageData.Size
+		}
+
+		new := &Volume{
+			Name:       v.Name,
+			Mountpoint: v.Mountpoint,
+			Driver:     v.Driver,
+			Created:    v.CreatedAt,
+			UsedBy:     usedBy,
+			Size:       size,
+		}
+		updated = append(updated, new)
+	}
+	ctr.Volumes = updated
+	return
+}
+
 func (ctr *Controller) HandleEvents() {
 	eventRcv, err := ctr.Events.Get()
 	if err != nil {
@@ -132,7 +179,7 @@ func (ctr *Controller) HandleEvents() {
 		default:
 			logrus.Warnf("- CONTROLLER - event %s is unkown or not implemented\n", event.Status)
 		}
-		ctr.About.Update(ctr.c)
+		ctr.UpdateAbout()
 	}
 }
 
