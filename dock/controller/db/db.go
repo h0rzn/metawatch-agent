@@ -52,7 +52,7 @@ func (db *DB) InitScheme() error {
 }
 
 func (db *DB) Metrics(cid string, tmin primitive.DateTime, tmax primitive.DateTime) map[string][]metrics.Set {
-	logrus.Debugf("- DB - aggregate for %s (%s-%s)\n", cid, tmin, tmax)
+	logrus.Debugf("- DB - aggregate for %s (%s-%s)\n", cid, tmin.Time(), tmax.Time())
 
 	match := bson.D{
 		{Key: "$match",
@@ -60,7 +60,7 @@ func (db *DB) Metrics(cid string, tmin primitive.DateTime, tmax primitive.DateTi
 				{Key: "cid", Value: cid},
 				{Key: "when", Value: bson.D{
 					{Key: "$gte", Value: tmin},
-					{Key: "$lt", Value: tmax},
+					{Key: "$lte", Value: tmax},
 				}},
 			},
 		},
@@ -73,16 +73,15 @@ func (db *DB) Metrics(cid string, tmin primitive.DateTime, tmax primitive.DateTi
 	curs, err := col.Aggregate(ctx, mongo.Pipeline{match})
 
 	if err != nil {
-		panic(err)
+		logrus.Errorf("- DB - metrics aggregation err: %s", err)
 	}
 	var result []MetricsMod
 	if err = curs.All(ctx, &result); err != nil {
-		panic(err)
+		logrus.Errorf("- DB - metrics aggregation err (getting all from cursor): %s", err)
 	}
 
-	// map["cid"][...]
 	out := make(map[string][]metrics.Set)
-	out[cid] = make([]metrics.Set, len(result))
+	out[cid] = make([]metrics.Set, 0)
 	logrus.Debugf("- DB - aggregated %d sets\n", len(result))
 
 	for _, prim := range result {

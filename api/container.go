@@ -53,8 +53,7 @@ func (api *API) Metrics(ctx *gin.Context) {
 	tmaxP := primitive.NewDateTimeFromTime(tmax)
 
 	result := api.Controller.DB.Metrics(id, tminP, tmaxP)
-	// fmt.Println(result[id])
-
+	
 	ctx.JSON(http.StatusOK, result[id])
 }
 
@@ -70,5 +69,3 @@ func (api *API) Stream(ctx *gin.Context) {
 	client := api.Hub.CreateClient(con)
 	client.Run()
 }
-
-
