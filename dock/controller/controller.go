@@ -29,6 +29,9 @@ type About struct {
 	Version    string `json:"version"`
 	APIVersion string `json:"api_version"`
 	OS         string `json:"os"`
+	OSType     string `json:"os_type"`
+	CPUs       int    `json:"cups"`
+	MaxMem     int64  `json:"max_mem"`
 	ImageN     int    `json:"image_n"`
 	ContainerN int    `json:"container_n"`
 }
@@ -116,6 +119,9 @@ func (ctr *Controller) UpdateAbout() (err error) {
 	if err != nil {
 		return
 	}
+	ctr.About.CPUs = info.NCPU
+	ctr.About.MaxMem = info.MemTotal
+	ctr.About.OSType = info.OSType
 	ctr.About.ImageN = info.Images
 	ctr.About.ContainerN = info.Containers
 
