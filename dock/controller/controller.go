@@ -33,6 +33,7 @@ type About struct {
 	MaxMem     int64  `json:"max_mem"`
 	ImageN     int    `json:"image_n"`
 	ContainerN int    `json:"container_n"`
+	VolumeN    int    `json:"volume_n"`
 }
 type Volume struct {
 	Name       string `json:"name"`
@@ -146,6 +147,7 @@ func (ctr *Controller) UpdateVolumes() (err error) {
 		updated = append(updated, new)
 	}
 	ctr.Volumes = updated
+	ctr.About.VolumeN = len(ctr.Volumes)
 	return
 }
 
