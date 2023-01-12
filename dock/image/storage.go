@@ -27,24 +27,43 @@ func NewStorage(c *client.Client) *Storage {
 	}
 }
 
+// func (s *Storage) Init() error {
+// 	ctx := context.Background()
+// 	raws, err := s.c.ImageList(
+// 		ctx,
+// 		types.ImageListOptions{
+// 			Filters: filters.Args{},
+// 		})
+// 	if err != nil {
+// 		return err
+// 	}
+// 	logrus.Infof("- STORAGE - discovered %d image(s)\n", len(raws))
+
+// 	for idx := range raws {
+// 		s.AddRaw(raws[idx])
+// 	}
+
+// 	return nil
+// }
+
 func (s *Storage) Init() error {
 	ctx := context.Background()
-	raws, err := s.c.ImageList(
-		ctx,
-		types.ImageListOptions{
-			Filters: filters.Args{},
-		})
+	// use DiskUsage() because ImageList does not set ImageSummary.Containers field
+	du, err := s.c.DiskUsage(ctx)
 	if err != nil {
 		return err
 	}
-	logrus.Infof("- STORAGE - discovered %d image(s)\n", len(raws))
 
-	for idx := range raws {
-		s.AddRaw(raws[idx])
+	imgs := du.Images
+	logrus.Infof("- STORAGE - discovered %d image(s)\n", len(imgs))
+
+	for i := range imgs {
+		s.AddRaw(*imgs[i])
 	}
 
 	return nil
 }
+
 
 func (s *Storage) AddRaw(raw types.ImageSummary) error {
 	s.mutex.Lock()

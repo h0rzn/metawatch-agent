@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	dock_events "github.com/docker/docker/api/types/events"
-	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 	"github.com/h0rzn/monitoring_agent/dock/container"
 	"github.com/h0rzn/monitoring_agent/dock/controller/db"
@@ -124,35 +123,25 @@ func (ctr *Controller) UpdateAbout() (err error) {
 	ctr.About.OSType = info.OSType
 	ctr.About.ImageN = info.Images
 	ctr.About.ContainerN = info.Containers
-
+	fmt.Println(info.OSType, info.Architecture, info.OperatingSystem)
 	return
 }
 
 func (ctr *Controller) UpdateVolumes() (err error) {
 	ctx := context.Background()
-	volList, err := ctr.c.VolumeList(ctx, filters.Args{})
+	du, err := ctr.c.DiskUsage(ctx)
 	if err != nil {
 		return
 	}
-
 	updated := make([]*Volume, 0)
-	for _, v := range volList.Volumes {
-		// for some reason usage data can be nil
-		var usedBy, size int64
-		if v.UsageData == nil {
-			usedBy, size = -1, -1
-		} else {
-			usedBy = v.UsageData.RefCount
-			size = v.UsageData.Size
-		}
-
+	for _, v := range du.Volumes {
 		new := &Volume{
 			Name:       v.Name,
 			Mountpoint: v.Mountpoint,
 			Driver:     v.Driver,
 			Created:    v.CreatedAt,
-			UsedBy:     usedBy,
-			Size:       size,
+			UsedBy:     v.UsageData.RefCount,
+			Size:       v.UsageData.Size,
 		}
 		updated = append(updated, new)
 	}
