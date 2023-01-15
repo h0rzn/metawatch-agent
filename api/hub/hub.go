@@ -35,42 +35,59 @@ func (h *Hub) CreateClient(con *websocket.Conn) *Client {
 	return NewClient(con, h.Sub, h.USub, h.Lve)
 }
 
-func (h *Hub) CreateGeneric(cid, typ string) error {
-	fmt.Println("creating generic")
+func (h *Hub) CreateGeneric(cid, typ string) (*GenericR, error) {
+	logrus.Debugln("- HUB - creating generic resource")
 	if container, exists := h.Ctr.Containers.Container(cid); exists {
-		fmt.Println("container exists")
 		r := NewGenericR(typ, container, h.LveSig)
-		fmt.Println("new generic created")
-		h.Resources[r] = true
 		err := r.Run()
 		if err != nil {
-			return err
+			return &GenericR{}, err
 		}
-		fmt.Println("new generic running")
-		return nil
-	}
-	return fmt.Errorf("cannot find container %s", cid)
-}
-
-func (h *Hub) CreateEvents() error {
-	if !h.hasEventR() {
-		r := NewEventsR(h.Ctr.Events.Get, h.LveSig)
 		h.Resources[r] = true
-		err := r.Run()
-		if err != nil {
-			return err
-		}
+		return r, err
 	}
-	return nil
+	return &GenericR{}, fmt.Errorf("cannot find container %s", cid)
 }
 
-func (h *Hub) hasEventR() bool {
+func (h *Hub) CreateCombined(cid, typ string) (*CombindedMetrics, error) {
+	logrus.Debugln("- HUB - creating combined resource")
+	if cid != "_all" {
+		return &CombindedMetrics{}, fmt.Errorf("failed to create combined resource: cid as to be '_all' got: %s", cid)
+	}
+
+	r := NewCombinedR(h.Ctr.Containers, h.LveSig)
+	err := r.Run()
+	if err != nil {
+		return &CombindedMetrics{}, err
+	}
+	h.Resources[r] = true
+	return r, err
+}
+
+func (h *Hub) CreateEvents() (*EventsR, error) {
+	logrus.Debugln("- HUB - creating events resource")
+	r, exists := h.hasEventR()
+	if exists {
+		return r, nil
+	}
+
+	r = NewEventsR(h.Ctr.Events.Get, h.LveSig)
+	err := r.Run()
+	if err != nil {
+		return &EventsR{}, err
+	}
+	h.Resources[r] = true
+
+	return r, nil
+}
+
+func (h *Hub) hasEventR() (*EventsR, bool) {
 	for r := range h.Resources {
 		if r.Type() == "event" {
-			return true
+			return (r).(*EventsR), true
 		}
 	}
-	return false
+	return nil, false
 }
 
 func (h *Hub) Subscribe(dem *Demand) {
@@ -80,35 +97,31 @@ func (h *Hub) Subscribe(dem *Demand) {
 		fmt.Println("resource exists: adding client")
 		res.Add(dem.Client)
 	} else {
-		fmt.Println("resource does not exist: create resource + adding client")
-		// create new resource
 		switch dem.Ressource {
 		case "metrics", "logs":
-			err := h.CreateGeneric(dem.CID, dem.Ressource)
+			r, err := h.CreateGeneric(dem.CID, dem.Ressource)
 			if err != nil {
+				logrus.Errorf("resource creation err: %s\n", err)
 				dem.Client.Error(err.Error())
 				break
 			}
-			fmt.Println("attempt to add client to generic")
-			if r, exists := h.Resource(dem.CID, dem.Ressource); exists {
-				fmt.Println("recheck: resource exists")
-				r.Add(dem.Client)
+			r.Add(dem.Client)
+		case "combined_metrics":
+			r, err := h.CreateCombined(dem.CID, dem.Ressource)
+			if err != nil {
+				logrus.Errorf("resource creation err: %s\n", err)
+				dem.Client.Error(err.Error())
+				break
 			}
+			r.Add(dem.Client)
 		case "events":
-			fmt.Println("attempt to create eventsr")
-			err := h.CreateEvents()
+			r, err := h.CreateEvents()
 			if err != nil {
-				fmt.Println("eventsr create err", err)
+				logrus.Errorf("resource creation err: %s\n", err)
 				dem.Client.Error(err.Error())
 				break
 			}
-			fmt.Println("create events err", err)
-			if r, exists := h.Resource(dem.CID, dem.Ressource); exists {
-				fmt.Println("eventsr exists add client")
-				r.Add(dem.Client)
-				fmt.Println("eventsr client added")
-			}
-			fmt.Println("events doesnt exist")
+			r.Add(dem.Client)
 		default:
 			dem.Client.Error(fmt.Sprintf("cannot create resource, container %s or type %s does not exist", dem.CID, dem.Ressource))
 		}
@@ -123,6 +136,7 @@ func (h *Hub) Unsubscribe(dem *Demand) {
 	if r, exists := h.Resource(dem.CID, dem.Ressource); exists {
 		r.Rm(dem.Client)
 	} else {
+		logrus.Errorf("- HUB - failed to unsubscribe: resource not found")
 		dem.Client.Error("failed to unsubscribe, resource not found")
 	}
 	h.mutex.Unlock()
@@ -136,10 +150,10 @@ func (h *Hub) Remove(r Resource) {
 }
 
 func (h *Hub) Resource(cid string, event string) (r Resource, exists bool) {
+	logrus.Debugf("resource get: cid %s, typ %s\n", cid, event)
 	for res := range h.Resources {
-		fmt.Println("trying to identify")
 		if res.CID() == cid && res.Type() == event {
-			fmt.Println("resource found")
+			fmt.Println("resource get: found resource")
 			return res, true
 		}
 	}
