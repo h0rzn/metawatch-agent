@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/h0rzn/monitoring_agent/dock/image"
+	"github.com/h0rzn/monitoring_agent/dock/metrics"
 	"github.com/sirupsen/logrus"
 )
 
@@ -19,7 +19,7 @@ type Storage struct {
 	mutex      sync.Mutex
 	c          *client.Client
 	Containers map[*Container]bool
-	Feed       chan interface{}
+	Feed       chan FeedItem
 	ImageGet   ImageGet
 }
 
@@ -28,7 +28,6 @@ func NewStorage(c *client.Client) *Storage {
 		mutex:      sync.Mutex{},
 		c:          c,
 		Containers: map[*Container]bool{},
-		Feed:       make(chan interface{}),
 	}
 }
 
@@ -86,6 +85,7 @@ func (s *Storage) Add(id string) (err error) {
 	if container.State.Status == "running" {
 		s.Containers[container] = true
 		go container.RunFeed()
+		go container.Streams.Metrics.HandleLatest()
 	} else {
 		s.Containers[container] = false
 	}
@@ -141,35 +141,59 @@ func (s *Storage) Container(id string) (*Container, bool) {
 }
 
 func (s *Storage) MarshalJSON() ([]byte, error) {
-	var containersRaw []json.RawMessage
+	containers := make([]*Container, 0)
+	s.mutex.Lock()
+	for c := range s.Containers {
+		containers = append(containers, c)
+	}
+	s.mutex.Unlock()
 
-	for container := range s.Containers {
-		if basic, err := container.MarshalBasic(); err == nil {
-			containersRaw = append(containersRaw, json.RawMessage(basic))
+	return json.Marshal(containers)
+}
+
+func (s *Storage) CollectLatest() (colLatest []metrics.Set) {
+	s.mutex.Lock()
+	fmt.Printf("store collecting latest for %d containers\n", len(s.Containers))
+	for container, active := range s.Containers {
+		if active {
+			latest := container.Streams.Metrics.Latest()
+			colLatest = append(colLatest, latest)
 		}
 	}
-
-	return json.Marshal(containersRaw)
+	s.mutex.Unlock()
+	return
 }
 
 func (s *Storage) Broadcast() chan []interface{} {
 	out := make(chan []interface{})
 	go func() {
-		sendTick := time.NewTicker(5 * time.Second)
-		data := []interface{}{}
 		for item := range s.Feed {
-			data = append(data, item)
+			// s.feedAdd(item)
+			// if s.feedComplete() {
+			// 	data := s.feedFetch()
+			// 	out <- data
+			// 	s.feedReset()
+			// }
+			_ = item
 
-			select {
-			case <-sendTick.C:
-				if len(data) > 0 {
-					out <- data
-					data = nil
-				}
-			default:
-			}
 		}
 		close(out)
 	}()
 	return out
 }
+
+// func (s *Storage) Broadcast() chan []interface{} {
+// 	out := make(chan []interface{})
+// 	go func() {
+// 		for item := range s.Feed {
+// 			s.feedAdd(item)
+// 			if s.feedComplete() {
+// 				data := s.feedFetch()
+// 				out <- data
+// 				s.feedReset()
+// 			}
+// 		}
+// 		close(out)
+// 	}()
+// 	return out
+// }
