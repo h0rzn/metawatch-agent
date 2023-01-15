@@ -9,6 +9,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
+	"github.com/h0rzn/monitoring_agent/dock/controller/db"
 	"github.com/h0rzn/monitoring_agent/dock/image"
 	"github.com/h0rzn/monitoring_agent/dock/metrics"
 	"github.com/sirupsen/logrus"
@@ -28,6 +29,7 @@ func NewStorage(c *client.Client) *Storage {
 	return &Storage{
 		mutex:      sync.Mutex{},
 		c:          c,
+		Feed:       make(chan FeedItem),
 		Containers: map[*Container]bool{},
 	}
 }
@@ -154,7 +156,6 @@ func (s *Storage) MarshalJSON() ([]byte, error) {
 
 func (s *Storage) CollectLatest() (colLatest []metrics.Set) {
 	s.mutex.Lock()
-	fmt.Printf("store collecting latest for %d containers\n", len(s.Containers))
 	for container, active := range s.Containers {
 		if active {
 			latest := container.Streams.Metrics.Latest()
@@ -166,21 +167,19 @@ func (s *Storage) CollectLatest() (colLatest []metrics.Set) {
 }
 
 func (s *Storage) Broadcast() chan []interface{} {
-	fmt.Println("broadcast running")
 	out := make(chan []interface{})
 	go func() {
 		data := make([]interface{}, 0)
 		ticker := time.NewTicker(5 * time.Second)
 		for item := range s.Feed {
-			fmt.Println("storage handling feed item")
 			select {
 			case <-ticker.C:
 				out <- data
-				fmt.Println("storage: broadcasted data")
 				data = nil
 			default:
 			}
-			data = append(data, item)
+			mod := db.NewMetricsMod(item.Origin.ID, item.Body.When, item.Body)
+			data = append(data, mod)
 		}
 		close(out)
 	}()
