@@ -42,10 +42,11 @@ func (c *Client) Init() (err error) {
 	return
 }
 
-func (c *Client) BulkWrite(data []interface{}) {
+func (c *Client) InsertManyMetrics(data []interface{}) {
 	if len(data) == 0 {
 		return
 	}
+
 	col := c.Mongo.Database("metawatch").Collection("metrics")
 	ctx := context.Background()
 	res, err := col.InsertMany(ctx, data)
@@ -53,13 +54,6 @@ func (c *Client) BulkWrite(data []interface{}) {
 		logrus.Errorf("- DB - bulk write err:", err)
 		return
 	}
-	logrus.Infof("- DB - sucessful bulk write of %d entries\n", len(res.InsertedIDs))
-	// for _, sRes := range res.InsertedIDs {
-	// 	fmt.Printf("%+v\n", sRes)
-	// }
+	logrus.Infof("- DB - sucessful insert of %d metric entries\n", len(res.InsertedIDs))
 
-	// coll := c.Mongo.Database("metawatch").Collection("metrics")
-	//  address1 := Address{"1 Lakewood Way", "Elwood City", "PA"}
-	// student1 := Student{FirstName: "Arthur", Address: address1, Age: 8}
-	// _, err = coll.InsertOne(context.TODO(), student1)
 }

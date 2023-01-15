@@ -92,7 +92,7 @@ func (ctr *Controller) Init() (err error) {
 	}
 	go func() {
 		for items := range ctr.Containers.Broadcast() {
-			go ctr.DB.Client.BulkWrite(items)
+			go ctr.DB.Client.InsertManyMetrics(items)
 		}
 		fmt.Println("feed writer left")
 	}()
