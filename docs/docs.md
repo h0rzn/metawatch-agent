@@ -37,6 +37,15 @@ Subscribe to Resource
 ```
 
 ### Generic Resource (metrics, logs)
+Subscribe
+```
+{
+  "container_id": <cid>, 
+  "event": "subscribe,
+  "type": "metrics" // "type": "logs"
+}
+```
+Response
 ```
 {
    "container_id":"fdaaaa9dcace802715dbb865eb784bf6b8aa48de9d8a425ca11a472edc72d240",
@@ -64,6 +73,14 @@ Subscribe to Resource
 }
 ```
 ### Events Resource (events)
+Subscribe
+```
+{
+  "container_id": <cid>, 
+  "event": "subscribe,
+  "type": "events"
+}
+```
 ```
 {
     "type": "event",
@@ -74,3 +91,40 @@ Subscribe to Resource
 }
 ```
 on `container_start` `id` would be container id, for image events the image id, ... 
+
+### Combined Metrics (metrics of all running container summed up)
+Subscribe
+```
+{
+  "container_id": "_all", 
+  "event": "subscribe,
+  "type": "combined_metrics"
+}
+```
+Response
+```
+{
+   "container_id":"_all",
+   "type":"combined_metrics",
+   "message":{
+      "when":"2023-01-09T21:02:17.414+01:00",
+      "cpu":{
+         "perc":0.04666666666666667,
+         "online":4
+      },
+      "memory":{
+         "perc":0.012338222519843144,
+         "usage_bytes":1015808,
+         "available_bytes":8233017344
+      },
+      "disk":{
+         "read":0,
+         "write":0
+      },
+      "net":{
+         "in":1226,
+         "out":0
+      }
+   }
+}
+```
