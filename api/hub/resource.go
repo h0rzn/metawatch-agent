@@ -3,12 +3,10 @@ package hub
 import (
 	"fmt"
 	"sync"
-	"time"
 
 	devents "github.com/docker/docker/api/types/events"
 	"github.com/h0rzn/monitoring_agent/dock/container"
 	"github.com/h0rzn/monitoring_agent/dock/stream"
-	"github.com/sirupsen/logrus"
 )
 
 type Resource interface {
@@ -28,19 +26,19 @@ type GenericR struct {
 	Input     *stream.Receiver
 	Subs      map[*Client]bool
 	LveSig    chan Resource
-	TOActive  bool
-	TOFired   chan struct{}
-	TOStop    chan struct{}
+	Timeout *Timeout
 }
 
 func NewGenericR(typ string, cont *container.Container, lveSig chan Resource) *GenericR {
-	return &GenericR{
+	r := &GenericR{
 		mutex:     &sync.Mutex{},
 		Typ:       typ,
 		Container: cont,
 		Subs:      make(map[*Client]bool),
 		LveSig:    lveSig,
 	}
+	r.Timeout = NewTimeout(r.Quit)
+	return r
 }
 
 func (r *GenericR) CID() string {
@@ -89,6 +87,9 @@ func (r *GenericR) Run() error {
 }
 
 func (r *GenericR) Add(c *Client) {
+	if len(c.Sub) == 0 {
+		r.Timeout.Stop()
+	}
 	fmt.Println("generic: adding client")
 	r.mutex.Lock()
 	r.Subs[c] = true
@@ -99,6 +100,9 @@ func (r *GenericR) Rm(c *Client) {
 	r.mutex.Lock()
 	delete(r.Subs, c)
 	r.mutex.Unlock()
+	if len(r.Subs) == 0 {
+		r.Timeout.Start()
+	}
 }
 
 func (r *GenericR) Broadcast(set stream.Set) {
@@ -124,48 +128,27 @@ func (r *GenericR) Quit() {
 	r.mutex.Unlock()
 }
 
-func (r *GenericR) Timeout() {
-	r.mutex.Lock()
-	r.TOActive = true
-	r.mutex.Unlock()
-
-	for {
-		timer := time.NewTimer(10 * time.Minute)
-		select {
-		case <-r.TOStop:
-			timer.Stop()
-			r.mutex.Lock()
-			r.TOActive = false
-			r.mutex.Unlock()
-			return
-		case <-timer.C:
-			logrus.Infoln("- RESSOURCE - timeout after 10min -> quit")
-			r.Quit()
-		}
-	}
-}
-
 type GetEvents func() (*stream.Receiver, error)
 
 type EventsR struct {
-	mutex    *sync.Mutex
-	Typ      string
-	Subs     map[*Client]bool
-	LveSig   chan Resource
-	Events   GetEvents
-	TOActive bool
-	TOFired  chan struct{}
-	TOStop   chan struct{}
+	mutex  *sync.Mutex
+	Typ    string
+	Subs   map[*Client]bool
+	LveSig chan Resource
+	Events GetEvents
+	Timeout *Timeout
 }
 
 func NewEventsR(getEvents GetEvents, lveSig chan Resource) *EventsR {
-	return &EventsR{
+	r := &EventsR{
 		mutex:  &sync.Mutex{},
 		Typ:    "events",
 		Subs:   make(map[*Client]bool),
 		LveSig: lveSig,
 		Events: getEvents,
 	}
+	r.Timeout = NewTimeout(r.Quit)
+	return r
 }
 
 func (r *EventsR) CID() string {
@@ -193,6 +176,9 @@ func (r *EventsR) Run() error {
 }
 
 func (r *EventsR) Add(c *Client) {
+	if len(c.Sub) == 0 {
+		r.Timeout.Stop()
+	}
 	fmt.Println("eventsr adding client")
 	r.mutex.Lock()
 	r.Subs[c] = true
@@ -204,6 +190,9 @@ func (r *EventsR) Rm(c *Client) {
 	r.mutex.Lock()
 	delete(r.Subs, c)
 	r.mutex.Unlock()
+	if len(r.Subs) == 0 {
+		r.Timeout.Start()
+	}
 }
 
 func (r *EventsR) Broadcast(set stream.Set) {
@@ -235,25 +224,4 @@ func (r *EventsR) Quit() {
 	}
 	r.LveSig <- r
 	r.mutex.Unlock()
-}
-
-func (r *EventsR) Timeout() {
-	r.mutex.Lock()
-	r.TOActive = true
-	r.mutex.Unlock()
-
-	for {
-		timer := time.NewTimer(10 * time.Minute)
-		select {
-		case <-r.TOStop:
-			timer.Stop()
-			r.mutex.Lock()
-			r.TOActive = false
-			r.mutex.Unlock()
-			return
-		case <-timer.C:
-			logrus.Infoln("- RESSOURCE - timeout after 10min -> quit")
-			r.Quit()
-		}
-	}
 }
