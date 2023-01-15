@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/docker/docker/client"
-	"github.com/h0rzn/monitoring_agent/dock/controller/db"
 	"github.com/h0rzn/monitoring_agent/dock/image"
 	"github.com/h0rzn/monitoring_agent/dock/logs"
 	"github.com/h0rzn/monitoring_agent/dock/metrics"
@@ -57,15 +56,21 @@ type Port struct {
 }
 
 type Streams struct {
+	Container  *Container
 	Logs       *logs.Logs
 	Metrics    *metrics.Metrics
 	FeederDone chan struct{}
-	FeedIn     chan interface{}
+	FeedIn     chan FeedItem
+}
+
+type FeedItem struct {
+	Origin *Container // container id
+	Body   metrics.Set
 }
 
 // Feed collects data from streamer and feeds them to tb
-func (s *Streams) Feed(cid string) chan interface{} {
-	out := make(chan interface{})
+func (s *Streams) Feed(cid string) chan FeedItem {
+	out := make(chan FeedItem)
 
 	logrus.Debugln("- CONTAINER - starting feed")
 
@@ -82,8 +87,10 @@ func (s *Streams) Feed(cid string) chan interface{} {
 		for {
 			select {
 			case <-s.FeederDone:
+				fmt.Println("feeder: feeder done received")
 				return
 			case <-metricsRcv.Closing:
+				fmt.Println("feeder: metrics receiver -closing-")
 				return
 			case <-feederTicker.C:
 				set, ok := <-metricsRcv.In
@@ -92,8 +99,11 @@ func (s *Streams) Feed(cid string) chan interface{} {
 					return
 				}
 				if metricsSet, ok := set.Data.(metrics.Set); ok {
-					// s.FeedIn <- db.NewMetricsMod(cid, metricsSet.When, metricsSet)
-					out <- db.NewMetricsMod(cid, metricsSet.When, metricsSet)
+					item := FeedItem{
+						Origin: s.Container,
+						Body:   metricsSet,
+					}
+					out <- item
 					logrus.Debugf("- Container - -> sending for cid: %s\n", cid)
 				} else {
 					logrus.Info("- LINK - failed to parse incomming interface to metrics.Set")
@@ -124,14 +134,14 @@ func (s *Streams) Stop() error {
 	return nil
 }
 
-func NewContainer(c *client.Client, cid string, feedIn chan interface{}) *Container {
+func NewContainer(c *client.Client, cid string, feedIn chan FeedItem) *Container {
 	return &Container{
 		ID:       cid,
 		Networks: make([]*Network, 0),
 		Volumes:  make([]*Volume, 0),
 		Ports:    make([]*Port, 0),
 		Streams: Streams{
-			FeederDone: make(chan struct{}),
+			FeederDone: make(chan struct{}, 1),
 			FeedIn:     feedIn,
 			Metrics:    metrics.NewMetrics(c, cid),
 			Logs:       logs.NewLogs(c, cid),
@@ -142,6 +152,8 @@ func NewContainer(c *client.Client, cid string, feedIn chan interface{}) *Contai
 
 func (cont *Container) prepare() <-chan error {
 	out := make(chan error, 1)
+
+	cont.Streams.Container = cont
 
 	// inspect container for further info
 	ctx := context.Background()
@@ -183,7 +195,6 @@ func (cont *Container) prepare() <-chan error {
 	}
 
 	// volumes
-	
 
 	// ports
 	ports := json.NetworkSettings.Ports
@@ -198,6 +209,16 @@ func (cont *Container) prepare() <-chan error {
 			cont.Ports = append(cont.Ports, p)
 		}
 	}
+
+	// start latest
+	if cont.State.Status == "running" {
+		err := cont.Streams.Metrics.Init()
+		if err != nil {
+			out <- err
+			return out
+		}
+	}
+
 	out <- err
 	return out
 }
@@ -220,42 +241,19 @@ func (cont *Container) RunFeed() {
 
 func (cont *Container) Stop() error {
 	logrus.Infoln("- CONTAINER - stop")
+	// stop latest
 	return cont.Streams.Stop()
-}
-
-func (cont *Container) MarshalBasic() ([]byte, error) {
-	type Alias Container
-	return json.Marshal(&struct {
-		*Alias
-	}{
-		Alias: (*Alias)(cont),
-	})
 }
 
 func (cont *Container) MarshalJSON() ([]byte, error) {
 	type Alias Container
 
 	if cont.State.Status == "running" {
-		// add current metrics to model
-		var currentMetrics metrics.Set
-
-		recv, err := cont.Streams.Metrics.Get(false)
-		if err != nil {
-			return []byte{}, err
-		}
-		defer recv.Close()
-		cur := <-recv.In
-
-		currentMetrics, ok := cur.Data.(metrics.Set)
-		if !ok {
-			currentMetrics = metrics.Set{}
-		}
-
 		return json.Marshal(&struct {
 			CurMetrics metrics.Set `json:"metrics"`
 			*Alias
 		}{
-			CurMetrics: currentMetrics,
+			CurMetrics: cont.Streams.Metrics.Latest(),
 			Alias:      (*Alias)(cont),
 		})
 	}
