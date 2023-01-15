@@ -90,11 +90,14 @@ func (ctr *Controller) Init() (err error) {
 		logrus.Errorf("- STORAGE - (containers) failed to init: %s\n", err)
 		return
 	}
+	ctr.SetVolumes()
+
 	go func() {
+		fmt.Println("started storage broadcast")
 		for items := range ctr.Containers.Broadcast() {
 			go ctr.DB.Client.InsertManyMetrics(items)
 		}
-		fmt.Println("feed writer left")
+		logrus.Warningln("- CONTROLLER - feed writer left")
 	}()
 
 	err = ctr.DB.Init()
@@ -149,6 +152,20 @@ func (ctr *Controller) UpdateVolumes() (err error) {
 	ctr.Volumes = updated
 	ctr.About.VolumeN = len(ctr.Volumes)
 	return
+}
+
+func (ctr *Controller) SetVolumes() {
+	for _, vol := range ctr.Volumes {
+		for c := range ctr.Containers.Containers {
+			for _, mp := range c.MountPaths {
+				if mp == vol.Mountpoint {
+					contVol := container.NewVolume(vol.Name, "", vol.Mountpoint, vol.Size, vol.UsedBy)
+					c.Volumes = append(c.Volumes, contVol)
+				}
+			}
+		}
+	}
+
 }
 
 func (ctr *Controller) HandleEvents() {

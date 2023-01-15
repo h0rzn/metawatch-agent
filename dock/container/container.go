@@ -21,13 +21,14 @@ type Container struct {
 	Name  string      `json:"name"`
 	Image image.Image `json:"image"`
 	// function from image store to get image data by id
-	ImageGet ImageGet       `json:"-"`
-	State    State          `json:"state"`
-	Networks []*Network     `json:"networks"`
-	Volumes  []*Volume      `json:"volume"`
-	Ports    []*Port        `json:"ports"`
-	Streams  Streams        `json:"-"`
-	c        *client.Client `json:"-"`
+	ImageGet   ImageGet       `json:"-"`
+	State      State          `json:"state"`
+	Networks   []*Network     `json:"networks"`
+	MountPaths []string       `json:"-"`
+	Volumes    []*Volume      `json:"volumes"`
+	Ports      []*Port        `json:"ports"`
+	Streams    Streams        `json:"-"`
+	c          *client.Client `json:"-"`
 }
 
 type State struct {
@@ -44,8 +45,21 @@ type Network struct {
 }
 
 type Volume struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
+	Name       string `json:"name"`
+	Path       string `json:"path"`
+	Mountpoint string `json:"mountpoint"`
+	Size       int64  `json:"size"`
+	UsedBy     int64  `json:"used_by"`
+}
+
+func NewVolume(name, path, mp string, size, usedby int64) *Volume {
+	return &Volume{
+		Name:       name,
+		Path:       path,
+		Mountpoint: mp,
+		Size:       size,
+		UsedBy:     usedby,
+	}
 }
 
 type Port struct {
@@ -195,6 +209,26 @@ func (cont *Container) prepare() <-chan error {
 	}
 
 	// volumes
+	// ctx = context.Background()
+	// usage, err := cont.c.DiskUsage(ctx)
+	// if err != nil {
+	// 	out <- err
+	// 	return out
+	// }
+	// for _, v := range usage.Volumes {
+	// 	vol := &Volume{
+	// 		Name:       v.Name,
+	// 		Path:       "",
+	// 		Mountpoint: v.Mountpoint,
+	// 		Size:       v.UsageData.Size,
+	// 		UsedBy:     v.UsageData.RefCount,
+	// 	}
+	// 	cont.Volumes = append(cont.Volumes, vol)
+	// }
+
+	for _, mp := range json.Mounts {
+		cont.MountPaths = append(cont.MountPaths, mp.Source)
+	}
 
 	// ports
 	ports := json.NetworkSettings.Ports
@@ -235,7 +269,9 @@ func (cont *Container) Start() error {
 
 func (cont *Container) RunFeed() {
 	for set := range cont.Streams.Feed(cont.ID) {
+		fmt.Println("container broadcasting to store")
 		cont.Streams.FeedIn <- set
+		fmt.Println("broadcsated to store")
 	}
 }
 

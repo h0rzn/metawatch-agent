@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
@@ -165,35 +166,23 @@ func (s *Storage) CollectLatest() (colLatest []metrics.Set) {
 }
 
 func (s *Storage) Broadcast() chan []interface{} {
+	fmt.Println("broadcast running")
 	out := make(chan []interface{})
 	go func() {
+		data := make([]interface{}, 0)
+		ticker := time.NewTicker(5 * time.Second)
 		for item := range s.Feed {
-			// s.feedAdd(item)
-			// if s.feedComplete() {
-			// 	data := s.feedFetch()
-			// 	out <- data
-			// 	s.feedReset()
-			// }
-			_ = item
-
+			fmt.Println("storage handling feed item")
+			select {
+			case <-ticker.C:
+				out <- data
+				fmt.Println("storage: broadcasted data")
+				data = nil
+			default:
+			}
+			data = append(data, item)
 		}
 		close(out)
 	}()
 	return out
 }
-
-// func (s *Storage) Broadcast() chan []interface{} {
-// 	out := make(chan []interface{})
-// 	go func() {
-// 		for item := range s.Feed {
-// 			s.feedAdd(item)
-// 			if s.feedComplete() {
-// 				data := s.feedFetch()
-// 				out <- data
-// 				s.feedReset()
-// 			}
-// 		}
-// 		close(out)
-// 	}()
-// 	return out
-// }
