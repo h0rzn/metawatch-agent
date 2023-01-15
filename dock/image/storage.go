@@ -27,25 +27,6 @@ func NewStorage(c *client.Client) *Storage {
 	}
 }
 
-// func (s *Storage) Init() error {
-// 	ctx := context.Background()
-// 	raws, err := s.c.ImageList(
-// 		ctx,
-// 		types.ImageListOptions{
-// 			Filters: filters.Args{},
-// 		})
-// 	if err != nil {
-// 		return err
-// 	}
-// 	logrus.Infof("- STORAGE - discovered %d image(s)\n", len(raws))
-
-// 	for idx := range raws {
-// 		s.AddRaw(raws[idx])
-// 	}
-
-// 	return nil
-// }
-
 func (s *Storage) Init() error {
 	ctx := context.Background()
 	// use DiskUsage() because ImageList does not set ImageSummary.Containers field
