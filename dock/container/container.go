@@ -208,24 +208,6 @@ func (cont *Container) prepare() <-chan error {
 		cont.Networks = append(cont.Networks, n)
 	}
 
-	// volumes
-	// ctx = context.Background()
-	// usage, err := cont.c.DiskUsage(ctx)
-	// if err != nil {
-	// 	out <- err
-	// 	return out
-	// }
-	// for _, v := range usage.Volumes {
-	// 	vol := &Volume{
-	// 		Name:       v.Name,
-	// 		Path:       "",
-	// 		Mountpoint: v.Mountpoint,
-	// 		Size:       v.UsageData.Size,
-	// 		UsedBy:     v.UsageData.RefCount,
-	// 	}
-	// 	cont.Volumes = append(cont.Volumes, vol)
-	// }
-
 	for _, mp := range json.Mounts {
 		cont.MountPaths = append(cont.MountPaths, mp.Source)
 	}
@@ -269,9 +251,7 @@ func (cont *Container) Start() error {
 
 func (cont *Container) RunFeed() {
 	for set := range cont.Streams.Feed(cont.ID) {
-		fmt.Println("container broadcasting to store")
 		cont.Streams.FeedIn <- set
-		fmt.Println("broadcsated to store")
 	}
 }
 

@@ -150,10 +150,8 @@ func (h *Hub) Remove(r Resource) {
 }
 
 func (h *Hub) Resource(cid string, event string) (r Resource, exists bool) {
-	logrus.Debugf("resource get: cid %s, typ %s\n", cid, event)
 	for res := range h.Resources {
 		if res.CID() == cid && res.Type() == event {
-			fmt.Println("resource get: found resource")
 			return res, true
 		}
 	}
@@ -161,7 +159,6 @@ func (h *Hub) Resource(cid string, event string) (r Resource, exists bool) {
 }
 
 func (h *Hub) ClientLeave(c *Client) {
-	fmt.Println("client leave")
 	for r := range h.Resources {
 		r.Rm(c)
 	}
@@ -179,8 +176,10 @@ func (h *Hub) Run() {
 	for {
 		select {
 		case dem := <-h.Sub:
+			fmt.Println("HUB: subscribing")
 			h.Subscribe(dem)
 		case dem := <-h.USub:
+			fmt.Println("HUB: unsubscribing")
 			h.Unsubscribe(dem)
 		case client := <-h.Lve:
 			fmt.Println("hub rcvd client leave")

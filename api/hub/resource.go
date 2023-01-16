@@ -26,7 +26,7 @@ type GenericR struct {
 	Input     *stream.Receiver
 	Subs      map[*Client]bool
 	LveSig    chan Resource
-	Timeout *Timeout
+	Timeout   *Timeout
 }
 
 func NewGenericR(typ string, cont *container.Container, lveSig chan Resource) *GenericR {
@@ -90,7 +90,6 @@ func (r *GenericR) Add(c *Client) {
 	if len(c.Sub) == 0 {
 		r.Timeout.Stop()
 	}
-	fmt.Println("generic: adding client")
 	r.mutex.Lock()
 	r.Subs[c] = true
 	r.mutex.Unlock()
@@ -101,7 +100,7 @@ func (r *GenericR) Rm(c *Client) {
 	delete(r.Subs, c)
 	r.mutex.Unlock()
 	if len(r.Subs) == 0 {
-		r.Timeout.Start()
+		go r.Timeout.Start()
 	}
 }
 
@@ -131,11 +130,11 @@ func (r *GenericR) Quit() {
 type GetEvents func() (*stream.Receiver, error)
 
 type EventsR struct {
-	mutex  *sync.Mutex
-	Typ    string
-	Subs   map[*Client]bool
-	LveSig chan Resource
-	Events GetEvents
+	mutex   *sync.Mutex
+	Typ     string
+	Subs    map[*Client]bool
+	LveSig  chan Resource
+	Events  GetEvents
 	Timeout *Timeout
 }
 
