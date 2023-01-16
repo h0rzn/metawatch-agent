@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	URI    string = "mongodb://root:root@localhost:27017/"
+	URI    string = "mongodb://root:root@127.0.0.1:27017/"
 	DBName string = "metawatch"
 )
 
