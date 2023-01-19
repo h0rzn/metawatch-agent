@@ -9,24 +9,23 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-type KeepAliveMsg struct {
-	KeepAlive bool `json:"keep_alive"`
-}
-
+// /container/:id endpoint for fetching single container by id
 func (api *API) Container(ctx *gin.Context) {
 	id := ctx.Param("id")
-	cont, exists := api.Controller.Container(id)
-	if !exists {
+	if container, exists := api.Controller.Containers.Container(id); exists {
+		ctx.JSON(http.StatusOK, container)
+	} else {
 		HttpErr(ctx, http.StatusNotFound, errors.New("container not found"))
 	}
-	ctx.JSON(http.StatusOK, cont)
 }
 
+// /containers/all endpoint for fetching all containers
 func (api *API) Containers(ctx *gin.Context) {
-	containers := api.Controller.Storage.ContainerStore.Items()
-	ctx.JSON(http.StatusOK, containers)
+	ctx.JSON(http.StatusOK, api.Controller.Containers)
 }
 
+// /container/:id/metrics?from=X&to=Y endpoint for fetching container metrics
+// between X and Y
 func (api *API) Metrics(ctx *gin.Context) {
 	id := ctx.Param("id")
 	query := ctx.Request.URL.Query()
@@ -53,29 +52,20 @@ func (api *API) Metrics(ctx *gin.Context) {
 	tminP := primitive.NewDateTimeFromTime(tmin)
 	tmaxP := primitive.NewDateTimeFromTime(tmax)
 
-	result := api.Controller.Storage.DB.Metrics(id, tminP, tmaxP)
-	// fmt.Println(result[id])
-
+	result := api.Controller.DB.Metrics(id, tminP, tmaxP)
+	
 	ctx.JSON(http.StatusOK, result[id])
 }
 
+// /stream endpoint for accessing the websocket that supplies
+// live metrics, logs and events
 func (api *API) Stream(ctx *gin.Context) {
-	api.StreamWS(ctx.Writer, ctx.Request)
-}
-
-func (api *API) StreamWS(w http.ResponseWriter, r *http.Request) {
-	con, err := upgrade.Upgrade(w, r, nil)
+	con, err := upgrade.Upgrade(ctx.Writer, ctx.Request, nil)
 	if err != nil {
 		errBytes, _ := HttpErrBytes(500, err)
-		w.Write(errBytes)
+		ctx.Writer.Write(errBytes)
 		return
 	}
-
 	client := api.Hub.CreateClient(con)
 	client.Run()
-}
-
-func (api *API) Images(ctx *gin.Context) {
-	images := api.Controller.Storage.ImageStore.Items()
-	ctx.JSON(http.StatusOK, images)
 }

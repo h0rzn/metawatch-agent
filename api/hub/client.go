@@ -2,7 +2,6 @@ package hub
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -18,7 +17,7 @@ type Request struct {
 }
 
 type Response struct {
-	CID     string      `json:"container_id"`
+	CID     string      `json:"container_id,omitempty"`
 	Type    string      `json:"type"`
 	Message interface{} `json:"message"`
 }
@@ -34,53 +33,52 @@ type Demand struct {
 }
 
 type Client struct {
+	wg       *sync.WaitGroup
+	ctx      context.Context
+	cancel   context.CancelFunc
 	con      *websocket.Conn
 	In       chan *Response
 	Sub      chan *Demand
 	USub     chan *Demand
 	Lve      chan *Client
 	sndClose chan CloseMessage
-	done     chan struct{}
-	closed   chan struct{}
-	closing  bool
 }
 
 func NewClient(con *websocket.Conn, sub chan *Demand, usub chan *Demand, lve chan *Client) *Client {
 	return &Client{
+		wg:       &sync.WaitGroup{},
 		con:      con,
 		In:       make(chan *Response),
 		Sub:      sub,
 		USub:     usub,
 		Lve:      lve,
 		sndClose: make(chan CloseMessage, 1),
-		done:     make(chan struct{}, 1),
-		closed:   make(chan struct{}, 1),
-		closing:  false,
 	}
 }
 
-func (c *Client) parse(ctx context.Context, wg *sync.WaitGroup) {
+func (c *Client) parse() {
 	defer func() {
-		wg.Done()
+		c.wg.Done()
+		fmt.Println("CLIENT parse done")
 	}()
 
 	for {
 		select {
-		case <-ctx.Done():
+		case <-c.ctx.Done():
 			fmt.Println("parse done <-c.done")
 			return
 		default:
 			var frame *Request
 			err := c.con.ReadJSON(&frame)
+			fmt.Println(err, frame)
 			if err != nil {
-				fmt.Println("parse done (read)")
-				if !c.closing {
-					fmt.Println("client->c.Lve sig")
-					c.Lve <- c
-				} else {
-					fmt.Println("already closing")
+				go c.CloseByRemote()
+				select {
+				case <-c.ctx.Done():
+					return
+				case <-time.After(3 * time.Second):
+					fmt.Println("CLIENT parse failed to finish")
 				}
-				return
 			}
 
 			demand := &Demand{
@@ -104,16 +102,15 @@ func (c *Client) parse(ctx context.Context, wg *sync.WaitGroup) {
 	}
 }
 
-func (c *Client) HandleSend(ctx context.Context, wg *sync.WaitGroup) {
+func (c *Client) HandleSend() {
 	defer func() {
-		wg.Done()
+		c.wg.Done()
 	}()
 	for {
 		select {
-		case <-ctx.Done():
+		case <-c.ctx.Done():
 			return
 		case closeMsg := <-c.sndClose:
-			fmt.Println("sndClose received")
 			_ = c.con.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, closeMsg.Type), time.Now().Add(3*time.Second))
 			c.con.Close()
 		case response := <-c.In:
@@ -125,22 +122,25 @@ func (c *Client) HandleSend(ctx context.Context, wg *sync.WaitGroup) {
 	}
 }
 
-func (c *Client) Close() error {
+func (c *Client) CloseByRemote() {
+	logrus.Infoln("- CLIENT - closing by remote")
+	c.cancel()
+	c.wg.Wait()
+	c.Lve <- c
+	logrus.Debugln("- CLIENT - closed now")
+}
+
+func (c *Client) Close() {
 	logrus.Infoln("- CLIENT - closing")
-	c.closing = true
-	c.done <- struct{}{}
 
 	c.sndClose <- CloseMessage{
 		Type: "close",
 	}
+	c.cancel()
+	c.wg.Wait()
 
-	select {
-	case <-c.closed:
-		return nil
-	case <-time.After(25 * time.Second):
-		return errors.New("failed to exit goroutines")
-	}
-
+	c.Lve <- c
+	logrus.Debugln("- CLIENT - closed now")
 }
 
 func (c *Client) Error(msg string) {
@@ -154,16 +154,11 @@ func (c *Client) Error(msg string) {
 }
 
 func (c *Client) Run() {
-	wg := sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
+	c.ctx = ctx
+	c.cancel = cancel
 
-	wg.Add(2)
-	go c.parse(ctx, &wg)
-	go c.HandleSend(ctx, &wg)
-
-	<-c.done
-
-	cancel()
-	wg.Wait()
-	c.closed <- struct{}{}
+	c.wg.Add(2)
+	go c.parse()
+	go c.HandleSend()
 }

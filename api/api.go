@@ -37,14 +37,29 @@ func NewAPI(addr string) (*API, error) {
 	}, nil
 }
 
-func (api *API) RegRoutes() {
+func (api *API) RegRoutes() error {
+	jwt, err := JWT()
+	if err != nil {
+		return err
+	}
+
 	api.Router.Use(cors.Default())
-	api.Router.GET("/containers/:id", api.Container)
-	api.Router.GET("/containers/all", api.Containers)
-	api.Router.GET("/containers/:id/metrics", api.Metrics)
+	api.Router.POST("/login", jwt.LoginHandler)
+	authed := api.Router.Group("/api")
+	authed.Use(jwt.MiddlewareFunc())
+	authed.GET("refresh_token", jwt.RefreshHandler)
+
+	authed.GET("/containers/:id", api.Container)
+	authed.GET("/containers/all", api.Containers)
+	authed.GET("/containers/:id/metrics", api.Metrics)
+	authed.GET("/images", api.Images)
+	authed.GET("/images/:id", api.Image)
+	authed.GET("/about", api.About)
+	authed.GET("/volumes", api.Volumes)
+
 	api.Router.GET("/stream", api.Stream)
 
-	api.Router.GET("/images", api.Images)
+	return nil
 }
 
 func (api *API) Run() {
@@ -54,7 +69,7 @@ func (api *API) Run() {
 		return
 	}
 	go api.Hub.Run()
-	api.Controller.Storage.Events.SetInformer(api.Hub.BroadcastEvent)
+	// api.Controller.Storage.Events.SetInformer(api.Hub.BroadcastEvent)
 	logrus.Infoln("- API - starting gin router")
 	api.Router.Run(api.Addr)
 }

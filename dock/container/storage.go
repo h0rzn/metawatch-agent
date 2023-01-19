@@ -2,38 +2,47 @@ package container
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
+	"github.com/h0rzn/monitoring_agent/dock/controller/db"
+	"github.com/h0rzn/monitoring_agent/dock/image"
+	"github.com/h0rzn/monitoring_agent/dock/metrics"
 	"github.com/sirupsen/logrus"
 )
+
+type ImageGet func(string) (*image.Image, bool)
 
 type Storage struct {
 	mutex      sync.Mutex
 	c          *client.Client
 	Containers map[*Container]bool
-	feed       chan interface{}
+	Feed       chan FeedItem
+	ImageGet   ImageGet
 }
 
 func NewStorage(c *client.Client) *Storage {
 	return &Storage{
 		mutex:      sync.Mutex{},
 		c:          c,
+		Feed:       make(chan FeedItem),
 		Containers: map[*Container]bool{},
-		feed:       make(chan interface{}),
 	}
 }
 
-func (s *Storage) Init() error {
+func (s *Storage) Init(imgFunc ImageGet) error {
+	// make image retrieval availabe for containers
+	s.ImageGet = imgFunc
+
 	ctx := context.Background()
 	raws, err := s.c.ContainerList(
 		ctx,
 		types.ContainerListOptions{
-			Filters: filters.Args{},
+			All: true,
 		},
 	)
 	if err != nil {
@@ -42,48 +51,67 @@ func (s *Storage) Init() error {
 	logrus.Infof("- STORAGE - discovered %d container(s)\n", len(raws))
 
 	for idx := range raws {
-		s.AddRaw(raws[idx])
+		err := s.Add(raws[idx].ID)
+		if err != nil {
+			logrus.Errorf("- STORAGE - failed to add container: %s\n", err)
+			continue
+		}
 	}
-
 	return nil
 }
 
-func (s *Storage) AddRaw(raw types.Container) error {
+func (s *Storage) Add(id string) (err error) {
+	if container, exists := s.Container(id); exists {
+		// stopped
+		if !s.Containers[container] {
+			err = container.Start()
+			if err != nil {
+				return
+			}
+			s.Containers[container] = true
+			return
+		}
+		// dont do anything if container is already running
+		return
+	}
+
+	// add unindexed container
 	s.mutex.Lock()
-	container := NewContainer(raw, s.c, s.feed)
-	s.Containers[container] = true
-	err := container.Start()
+
+	container := NewContainer(s.c, id, s.Feed)
+	container.ImageGet = s.ImageGet
+	err = container.Start()
 	if err != nil {
-		logrus.Errorf("- STORAGE - failed to add raw container: %s\n", err)
+		return
+	}
+
+	if container.State.Status == "running" {
+		s.Containers[container] = true
+		go container.RunFeed()
+		go container.Streams.Metrics.HandleLatest()
+	} else {
+		s.Containers[container] = false
 	}
 	s.mutex.Unlock()
-	return nil
+
+	logrus.Infof("- STORAGE - added %s container\n", container.State.Status)
+
+	return
 }
 
-func (s *Storage) Add(id string) error {
+func (s *Storage) Stop(id string) error {
 	s.mutex.Lock()
-	if _, exists := s.Container(id); exists {
-		return nil
+	if container, exists := s.Container(id); exists {
+		running := s.Containers[container]
+		if running {
+			err := container.Stop()
+			if err != nil {
+				return err
+			}
+			s.Containers[container] = false
+		}
 	}
-	ctx := context.Background()
-	idFilter := filters.NewArgs()
-	idFilter.Add("id", id)
-	containers, err := s.c.ContainerList(
-		ctx,
-		types.ContainerListOptions{
-			Filters: idFilter,
-		})
-	if err != nil {
-		return err
-	}
-	raw := containers[0]
-	err = s.AddRaw(raw)
-	if err != nil {
-		return err
-	}
-
 	s.mutex.Unlock()
-	logrus.Infoln("- STORAGE - added container")
 	return nil
 }
 
@@ -115,10 +143,24 @@ func (s *Storage) Container(id string) (*Container, bool) {
 	return &Container{}, false
 }
 
-func (s *Storage) Items() (containers []*Container) {
+func (s *Storage) MarshalJSON() ([]byte, error) {
+	containers := make([]*Container, 0)
 	s.mutex.Lock()
-	for container := range s.Containers {
-		containers = append(containers, container)
+	for c := range s.Containers {
+		containers = append(containers, c)
+	}
+	s.mutex.Unlock()
+
+	return json.Marshal(containers)
+}
+
+func (s *Storage) CollectLatest() (colLatest []metrics.Set) {
+	s.mutex.Lock()
+	for container, active := range s.Containers {
+		if active {
+			latest := container.Streams.Metrics.Latest()
+			colLatest = append(colLatest, latest)
+		}
 	}
 	s.mutex.Unlock()
 	return
@@ -127,17 +169,19 @@ func (s *Storage) Items() (containers []*Container) {
 func (s *Storage) Broadcast() chan []interface{} {
 	out := make(chan []interface{})
 	go func() {
-		sendTick := time.NewTicker(5 * time.Second)
-		data := []interface{}{}
-		for {
+		data := make([]interface{}, 0)
+		ticker := time.NewTicker(5 * time.Second)
+		for item := range s.Feed {
 			select {
-			case item := <-s.feed:
-				data = append(data, item)
-			case <-sendTick.C:
+			case <-ticker.C:
 				out <- data
 				data = nil
+			default:
 			}
+			mod := db.NewMetricsMod(item.Origin.ID, item.Body.When, item.Body)
+			data = append(data, mod)
 		}
+		close(out)
 	}()
 	return out
 }

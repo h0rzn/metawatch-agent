@@ -8,8 +8,8 @@ import requests
 from sys import exit
 from datetime import datetime
 
-until_usub = 25
-CID = "76a659815abee87bd511219ca08df6f7107b83e69f766726a04adc38a72f64e4"
+until_usub = 5
+CID = "e63d12ed9e74cb2d5994e9e0356aad7588939108fb2a1e5ec729274e07e820bf"
 TYPE = "metrics"
 
 sub = {
@@ -25,25 +25,47 @@ usub = {
 }
 
 
+
 async def run():
   async with websockets.connect("ws://localhost:8080/stream") as ws:
     print("[SND]", json.dumps(sub))
     await ws.send(json.dumps(sub))
     
-    # start_time = time.time()
-    # while True:
-    #   cur_time = time.time()
-    #   elap_time = cur_time - start_time
-
-    #   if elap_time > until_usub:
-    #     print("\n[USUB]\n")
-    #     await ws.send(json.dumps(usub))
-    #     break
+    start_time = time.time()
     while True:
+      cur_time = time.time()
+      elap_time = cur_time - start_time
+
       res = await ws.recv()
 
       cur = datetime.now().strftime("%H:%M:%S")
       print("RCV", cur, res)
+
+      if elap_time > until_usub:
+        print("\n[USUB]\n")
+        await ws.send(json.dumps(usub))
+
+        # time.sleep(5)
+        # print("woke up: resubscribing")
+        # await ws.send(json.dumps(sub))
+
+        # while True:
+        #   res = await ws.recv()
+        #   print("RCV", res)
+
+      
+
+# async def run():
+#   async with websockets.connect("ws://localhost:8080/stream") as ws:
+#     print("[SND]", json.dumps(sub_comb))
+#     await ws.send(json.dumps(sub_comb))
+    
+#     while True:
+
+#       res = await ws.recv()
+
+#       print("RCV", res)
+
     
 
 

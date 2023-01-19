@@ -7,9 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
-	"github.com/h0rzn/monitoring_agent/dock/controller/db"
+	"github.com/h0rzn/monitoring_agent/dock/image"
 	"github.com/h0rzn/monitoring_agent/dock/logs"
 	"github.com/h0rzn/monitoring_agent/dock/metrics"
 	"github.com/sirupsen/logrus"
@@ -18,13 +17,18 @@ import (
 const feederInterv = 5 * time.Second
 
 type Container struct {
-	ID      string         `json:"id"`
-	Names   []string       `json:"names"`
-	Image   string         `json:"image"`
-	State   State          `json:"state"`
-	Ports   []string       `json:"ports"`
-	Streams Streams        `json:"-"`
-	c       *client.Client `json:"-"`
+	ID    string      `json:"id"`
+	Name  string      `json:"name"`
+	Image image.Image `json:"image"`
+	// function from image store to get image data by id
+	ImageGet   ImageGet       `json:"-"`
+	State      State          `json:"state"`
+	Networks   []*Network     `json:"networks"`
+	MountPaths []string       `json:"-"`
+	Volumes    []*Volume      `json:"volumes"`
+	Ports      []*Port        `json:"ports"`
+	Streams    Streams        `json:"-"`
+	c          *client.Client `json:"-"`
 }
 
 type State struct {
@@ -33,49 +37,101 @@ type State struct {
 	RestartPolicy string `json:"restart_policy"`
 }
 
+type Network struct {
+	Name    string   `json:"name"`
+	ID      string   `json:"id"`
+	Aliases []string `json:"aliases"`
+	IPAddr  string   `json:"ip"`
+}
+
+type Volume struct {
+	Name       string `json:"name"`
+	Path       string `json:"path"`
+	Mountpoint string `json:"mountpoint"`
+	Size       int64  `json:"size"`
+	UsedBy     int64  `json:"used_by"`
+}
+
+func NewVolume(name, path, mp string, size, usedby int64) *Volume {
+	return &Volume{
+		Name:       name,
+		Path:       path,
+		Mountpoint: mp,
+		Size:       size,
+		UsedBy:     usedby,
+	}
+}
+
+type Port struct {
+	Port     string `json:"port"`
+	Proto    string `json:"proto"`
+	HostIP   string `json:"host_ip"`
+	HostPort string `json:"host_port"`
+}
+
 type Streams struct {
+	Container  *Container
 	Logs       *logs.Logs
 	Metrics    *metrics.Metrics
 	FeederDone chan struct{}
-	FeedIn     chan interface{}
+	FeedIn     chan FeedItem
+}
+
+type FeedItem struct {
+	Origin *Container // container id
+	Body   metrics.Set
 }
 
 // Feed collects data from streamer and feeds them to tb
-func (s *Streams) Feed(done chan struct{}, cid string) {
+func (s *Streams) Feed(cid string) chan FeedItem {
+	out := make(chan FeedItem)
+
 	logrus.Debugln("- CONTAINER - starting feed")
+
 	metricsRcv, err := s.Metrics.Get(true)
 	if err != nil {
-		return
+		close(out)
+		return out
 	}
 
-	feederTicker := time.NewTicker(feederInterv)
-	for {
-		select {
-		case <-done:
-			return
-		case <-metricsRcv.Closing:
-			fmt.Println("feeder: rcv closing sig")
-			return
-		case <-feederTicker.C:
-			fmt.Println("feeder tick")
-			set, ok := <-metricsRcv.In
-			if !ok {
-				fmt.Println("feeder: rcv in is closed")
+	go func() {
+		defer close(out)
+
+		feederTicker := time.NewTicker(feederInterv)
+		for {
+			select {
+			case <-s.FeederDone:
+				fmt.Println("feeder: feeder done received")
 				return
-			}
-			if metricsSet, ok := set.Data.(metrics.Set); ok {
-				s.FeedIn <- db.NewMetricsMod(cid, metricsSet.When, metricsSet)
-				logrus.Debugf("- Container - -> sending for cid: %s\n", cid)
-			} else {
-				logrus.Info("- LINK - failed to parse incomming interface to metrics.Set")
+			case <-metricsRcv.Closing:
+				fmt.Println("feeder: metrics receiver -closing-")
+				return
+			case <-feederTicker.C:
+				set, ok := <-metricsRcv.In
+				if !ok {
+					fmt.Println("feeder: rcv in is closed")
+					return
+				}
+				if metricsSet, ok := set.Data.(metrics.Set); ok {
+					item := FeedItem{
+						Origin: s.Container,
+						Body:   metricsSet,
+					}
+					out <- item
+					logrus.Debugf("- Container - -> sending for cid: %s\n", cid)
+				} else {
+					logrus.Info("- LINK - failed to parse incomming interface to metrics.Set")
+				}
 			}
 		}
-	}
+	}()
+	return out
 }
 
 func (s *Streams) Stop() error {
 	logrus.Debugln("- CONTAINER - stop: stopping streams and feeder")
 	s.FeederDone <- struct{}{}
+	fmt.Println("feeder done sent")
 
 	err := s.Metrics.Stop()
 	if err != nil {
@@ -92,23 +148,17 @@ func (s *Streams) Stop() error {
 	return nil
 }
 
-func NewContainer(raw types.Container, c *client.Client, feedIn chan interface{}) *Container {
-	ports := make([]string, len(raw.Ports))
-	for _, p := range raw.Ports {
-		pFmt := fmt.Sprintf("%s:%d->%d/%s", p.IP, p.PublicPort, p.PrivatePort, p.Type)
-		ports = append(ports, pFmt)
-	}
-
+func NewContainer(c *client.Client, cid string, feedIn chan FeedItem) *Container {
 	return &Container{
-		ID:    raw.ID,
-		Names: raw.Names,
-		Image: raw.Image,
-		Ports: ports,
+		ID:       cid,
+		Networks: make([]*Network, 0),
+		Volumes:  make([]*Volume, 0),
+		Ports:    make([]*Port, 0),
 		Streams: Streams{
-			Metrics:    metrics.NewMetrics(c, raw.ID),
-			Logs:       logs.NewLogs(c, raw.ID),
-			FeederDone: make(chan struct{}),
+			FeederDone: make(chan struct{}, 1),
 			FeedIn:     feedIn,
+			Metrics:    metrics.NewMetrics(c, cid),
+			Logs:       logs.NewLogs(c, cid),
 		},
 		c: c,
 	}
@@ -116,6 +166,8 @@ func NewContainer(raw types.Container, c *client.Client, feedIn chan interface{}
 
 func (cont *Container) prepare() <-chan error {
 	out := make(chan error, 1)
+
+	cont.Streams.Container = cont
 
 	// inspect container for further info
 	ctx := context.Background()
@@ -125,19 +177,63 @@ func (cont *Container) prepare() <-chan error {
 		out <- err
 		return out
 	}
+	base := json.ContainerJSONBase
 
-	jsonBase := json.ContainerJSONBase
-	// set state
+	cont.Name = base.Name
+
+	// image
+	img, exists := cont.ImageGet(base.Image)
+	if !exists {
+		out <- fmt.Errorf("image %s not found", base.Image)
+		return out
+	}
+	cont.Image = *img
+
+	// state
 	cont.State = State{
-		Status:        jsonBase.State.Status,
-		Started:       jsonBase.State.StartedAt,
-		RestartPolicy: jsonBase.HostConfig.RestartPolicy.Name,
+		Status:        base.State.Status,
+		Started:       base.State.StartedAt,
+		RestartPolicy: base.HostConfig.RestartPolicy.Name,
 	}
 
-	// todo: set limits
+	// networks
+	networks := json.NetworkSettings.Networks
+	for net, eps := range networks {
+		n := &Network{
+			Name:    net,
+			ID:      eps.EndpointID,
+			Aliases: eps.Aliases,
+			IPAddr:  eps.IPAddress,
+		}
+		cont.Networks = append(cont.Networks, n)
+	}
 
-	// start feeder
-	go cont.Streams.Feed(cont.Streams.FeederDone, cont.ID)
+	for _, mp := range json.Mounts {
+		cont.MountPaths = append(cont.MountPaths, mp.Source)
+	}
+
+	// ports
+	ports := json.NetworkSettings.Ports
+	for port, binds := range ports {
+		for _, b := range binds {
+			p := &Port{
+				Port:     port.Port(),
+				Proto:    port.Proto(),
+				HostIP:   b.HostIP,
+				HostPort: b.HostPort,
+			}
+			cont.Ports = append(cont.Ports, p)
+		}
+	}
+
+	// start latest
+	if cont.State.Status == "running" {
+		err := cont.Streams.Metrics.Init()
+		if err != nil {
+			out <- err
+			return out
+		}
+	}
 
 	out <- err
 	return out
@@ -153,30 +249,34 @@ func (cont *Container) Start() error {
 	}
 }
 
+func (cont *Container) RunFeed() {
+	for set := range cont.Streams.Feed(cont.ID) {
+		cont.Streams.FeedIn <- set
+	}
+}
+
 func (cont *Container) Stop() error {
 	logrus.Infoln("- CONTAINER - stop")
+	// stop latest
 	return cont.Streams.Stop()
 }
 
 func (cont *Container) MarshalJSON() ([]byte, error) {
 	type Alias Container
-	var currentMetrics metrics.Set
 
-	recv, err := cont.Streams.Metrics.Get(false)
-	if err != nil {
-		return []byte{}, err
+	if cont.State.Status == "running" {
+		return json.Marshal(&struct {
+			CurMetrics metrics.Set `json:"metrics"`
+			*Alias
+		}{
+			CurMetrics: cont.Streams.Metrics.Latest(),
+			Alias:      (*Alias)(cont),
+		})
 	}
-	for cur := range recv.In {
-		currentMetrics = cur.Data.(metrics.Set)
-		break
-	}
-	recv.Close()
 
 	return json.Marshal(&struct {
-		CurMetrics metrics.Set `json:"metrics"`
 		*Alias
 	}{
-		CurMetrics: currentMetrics,
-		Alias:      (*Alias)(cont),
+		Alias: (*Alias)(cont),
 	})
 }
