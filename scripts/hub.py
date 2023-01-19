@@ -9,7 +9,7 @@ from sys import exit
 from datetime import datetime
 
 until_usub = 5
-CID = "fdaaaa9dcace802715dbb865eb784bf6b8aa48de9d8a425ca11a472edc72d240"
+CID = "e63d12ed9e74cb2d5994e9e0356aad7588939108fb2a1e5ec729274e07e820bf"
 TYPE = "metrics"
 
 sub = {
@@ -23,6 +23,7 @@ usub = {
   "event": "unsubscribe",
   "type": TYPE
 }
+
 
 
 async def run():
@@ -43,10 +44,27 @@ async def run():
       if elap_time > until_usub:
         print("\n[USUB]\n")
         await ws.send(json.dumps(usub))
-        print("sleeping...")
-        time.sleep(3)
-        print("continue handle")
+
+        # time.sleep(5)
+        # print("woke up: resubscribing")
+        # await ws.send(json.dumps(sub))
+
+        # while True:
+        #   res = await ws.recv()
+        #   print("RCV", res)
+
       
+
+# async def run():
+#   async with websockets.connect("ws://localhost:8080/stream") as ws:
+#     print("[SND]", json.dumps(sub_comb))
+#     await ws.send(json.dumps(sub_comb))
+    
+#     while True:
+
+#       res = await ws.recv()
+
+#       print("RCV", res)
 
     
 
