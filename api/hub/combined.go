@@ -56,7 +56,7 @@ func (cm *CombindedMetrics) Rm(c *Client) {
 	delete(cm.Subs, c)
 	cm.mutex.Unlock()
 	if len(cm.Subs) == 0 {
-		cm.Timeout.Start()
+		go cm.Timeout.Start()
 	}
 }
 

@@ -190,7 +190,7 @@ func (r *EventsR) Rm(c *Client) {
 	delete(r.Subs, c)
 	r.mutex.Unlock()
 	if len(r.Subs) == 0 {
-		r.Timeout.Start()
+		go r.Timeout.Start()
 	}
 }
 
