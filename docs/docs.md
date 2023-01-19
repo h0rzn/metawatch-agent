@@ -1,14 +1,34 @@
 # Documentation
 
 ## API
-#### /containers/:id
-#### /containers/:id/metrics?from=X&to=Y
-#### /containers/all
+#### /login
+Request [POST]
+```
+{
+    "password": "master",
+    "username": "master"
+}
+```
 
-#### /images/all
-#### /image/:id
+Response
+```
+{
+    "code": 200,
+    "expire": "2023-01-19T10:54:40+01:00",
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE2NzQxMjIwODAsImlkZW50aXR5IjoibWFzdGVyIiwib3JpZ19pYXQiOjE2NzQxMTg0ODB9.fOCdkCef01Svl1NFhKli9FlxQvtAcCYeE9NV67e8L5k"
+}
+```
+#### [JWT] /api/refresh_token
 
-#### /about
+#### [JWT] /api/containers/:id
+#### [JWT] /api/containers/:id/metrics?from=X&to=Y
+#### [JWT] /api/containers/all
+
+#### [JWT] /api/images/all
+#### [JWT] /api/image/:id
+
+#### [JWT] /api/about
+#### [JWT] /api/volumes
 ```
 {
   "version": "20.10.21",
