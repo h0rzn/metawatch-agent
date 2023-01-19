@@ -53,6 +53,7 @@ func (api *API) RegRoutes() error {
 	authed.GET("/containers/all", api.Containers)
 	authed.GET("/containers/:id/metrics", api.Metrics)
 	authed.GET("/images", api.Images)
+	authed.GET("/images/:id", api.Image)
 	authed.GET("/about", api.About)
 	authed.GET("/volumes", api.Volumes)
 
