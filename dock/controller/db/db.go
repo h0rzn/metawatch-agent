@@ -2,7 +2,9 @@ package db
 
 import (
 	"context"
-	"fmt"
+	"errors"
+	"os"
+	"time"
 
 	"github.com/h0rzn/monitoring_agent/dock/metrics"
 	"github.com/sirupsen/logrus"
@@ -17,8 +19,24 @@ const (
 	DBName string = "metawatch"
 )
 
+type MetricsMod struct {
+	MongoID primitive.ObjectID `bson:"_id,omitempty"`
+	CID     string             `bson:"cid"`     // metadata field
+	When    primitive.DateTime `bson:"when"`    // time
+	Metrics metrics.Set        `bson:"metrics"` // actual data
+}
+
+func NewMetricsMod(cid string, when primitive.DateTime, metrics metrics.Set) *MetricsMod {
+	return &MetricsMod{
+		CID:     cid,
+		When:    when,
+		Metrics: metrics,
+	}
+}
+
 type DB struct {
-	Client *Client
+	Client *mongo.Client
+	URI    string
 }
 
 func NewDB() *DB {
@@ -27,13 +45,21 @@ func NewDB() *DB {
 
 func (db *DB) Init() error {
 	logrus.Infoln("- DB - init...")
-	db.Client = NewClient(URI)
-	err := db.Client.Init()
-	if err != nil {
-		fmt.Println(err)
-	}
 
-	// check for errors
+	uri := os.Getenv("DB")
+	if uri == "" {
+		return errors.New("")
+	}
+	db.URI = uri
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(db.URI))
+	if err != nil {
+		return err
+	}
+	logrus.Info("- DB::Client - connection successful")
+	db.Client = client
 
 	err = db.InitScheme()
 	return err
@@ -41,7 +67,7 @@ func (db *DB) Init() error {
 
 // InitScheme initiates collections
 func (db *DB) InitScheme() error {
-	dbc := db.Client.Mongo.Database("metawatch")
+	dbc := db.Client.Database("metawatch")
 	tso := options.TimeSeries().SetTimeField("when").SetMetaField("cid")
 	opts := options.CreateCollection().SetTimeSeriesOptions(tso)
 	dbc.CreateCollection(context.TODO(), "metrics", opts)
@@ -68,7 +94,7 @@ func (db *DB) Metrics(cid string, tmin primitive.DateTime, tmax primitive.DateTi
 
 	// add group stage to only get $when and $metrics
 
-	col := db.Client.Mongo.Database("metawatch").Collection("metrics")
+	col := db.Client.Database("metawatch").Collection("metrics")
 	ctx := context.Background()
 	curs, err := col.Aggregate(ctx, mongo.Pipeline{match})
 
@@ -93,17 +119,17 @@ func (db *DB) Metrics(cid string, tmin primitive.DateTime, tmax primitive.DateTi
 	return out
 }
 
-type MetricsMod struct {
-	MongoID primitive.ObjectID `bson:"_id,omitempty"`
-	CID     string             `bson:"cid"`     // metadata field
-	When    primitive.DateTime `bson:"when"`    // time
-	Metrics metrics.Set        `bson:"metrics"` // actual data
-}
-
-func NewMetricsMod(cid string, when primitive.DateTime, metrics metrics.Set) *MetricsMod {
-	return &MetricsMod{
-		CID:     cid,
-		When:    when,
-		Metrics: metrics,
+func (db *DB) InsertManyMetrics(data []interface{}) {
+	if len(data) == 0 {
+		return
 	}
+
+	col := db.Client.Database("metawatch").Collection("metrics")
+	ctx := context.Background()
+	res, err := col.InsertMany(ctx, data)
+	if err != nil {
+		logrus.Errorf("- DB - bulk write err:", err)
+		return
+	}
+	logrus.Infof("- DB - sucessful insert of %d metric entries\n", len(res.InsertedIDs))
 }

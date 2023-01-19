@@ -95,7 +95,7 @@ func (ctr *Controller) Init() (err error) {
 	go func() {
 		fmt.Println("started storage broadcast")
 		for items := range ctr.Containers.Broadcast() {
-			go ctr.DB.Client.InsertManyMetrics(items)
+			go ctr.DB.InsertManyMetrics(items)
 		}
 		logrus.Warningln("- CONTROLLER - feed writer left")
 	}()
