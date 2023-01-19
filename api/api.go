@@ -37,17 +37,28 @@ func NewAPI(addr string) (*API, error) {
 	}, nil
 }
 
-func (api *API) RegRoutes() {
+func (api *API) RegRoutes() error {
+	jwt, err := JWT()
+	if err != nil {
+		return err
+	}
+
 	api.Router.Use(cors.Default())
-	api.Router.GET("/containers/:id", api.Container)
-	api.Router.GET("/containers/all", api.Containers)
-	api.Router.GET("/containers/:id/metrics", api.Metrics)
+	api.Router.POST("/login", jwt.LoginHandler)
+	authed := api.Router.Group("/api")
+	authed.Use(jwt.MiddlewareFunc())
+	authed.GET("refresh_token", jwt.RefreshHandler)
+
+	authed.GET("/containers/:id", api.Container)
+	authed.GET("/containers/all", api.Containers)
+	authed.GET("/containers/:id/metrics", api.Metrics)
+	authed.GET("/images", api.Images)
+	authed.GET("/about", api.About)
+	authed.GET("/volumes", api.Volumes)
+
 	api.Router.GET("/stream", api.Stream)
 
-	api.Router.GET("/images", api.Images)
-
-	api.Router.GET("/about", api.About)
-	api.Router.GET("/volumes", api.Volumes)
+	return nil
 }
 
 func (api *API) Run() {

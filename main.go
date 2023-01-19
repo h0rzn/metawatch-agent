@@ -13,6 +13,11 @@ func main() {
 		logrus.Errorln(err)
 		return
 	}
-	api.RegRoutes()
+	err = api.RegRoutes()
+	if err != nil {
+		logrus.Errorf("- API - JWT init err: %s\n", err)
+		logrus.Errorln("This error is fatal. exit.")
+		return
+	}
 	api.Run()
 }
