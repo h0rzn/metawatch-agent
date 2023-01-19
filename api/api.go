@@ -53,9 +53,10 @@ func (api *API) RegRoutes() error {
 	authed.GET("/containers/all", api.Containers)
 	authed.GET("/containers/:id/metrics", api.Metrics)
 	authed.GET("/images", api.Images)
+	authed.GET("/about", api.About)
+	authed.GET("/volumes", api.Volumes)
 
 	api.Router.GET("/stream", api.Stream)
-
 
 	return nil
 }
@@ -67,7 +68,7 @@ func (api *API) Run() {
 		return
 	}
 	go api.Hub.Run()
-	api.Controller.Storage.Events.SetInformer(api.Hub.BroadcastEvent)
+	// api.Controller.Storage.Events.SetInformer(api.Hub.BroadcastEvent)
 	logrus.Infoln("- API - starting gin router")
 	api.Router.Run(api.Addr)
 }

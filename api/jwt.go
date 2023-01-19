@@ -63,7 +63,7 @@ func JWT() (*jwt.GinJWTMiddleware, error) {
 		},
 
 		Authorizator: func(data interface{}, c *gin.Context) bool {
-			if v, ok := data.(*JWTUser); ok && v.Name == "admin" {
+			if v, ok := data.(*JWTUser); ok && v.Name == "master" {
 				return true
 			}
 

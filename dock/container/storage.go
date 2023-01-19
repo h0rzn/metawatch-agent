@@ -2,32 +2,42 @@ package container
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
+	"github.com/h0rzn/monitoring_agent/dock/controller/db"
+	"github.com/h0rzn/monitoring_agent/dock/image"
+	"github.com/h0rzn/monitoring_agent/dock/metrics"
 	"github.com/sirupsen/logrus"
 )
+
+type ImageGet func(string) (*image.Image, bool)
 
 type Storage struct {
 	mutex      sync.Mutex
 	c          *client.Client
 	Containers map[*Container]bool
-	Feed       chan interface{}
+	Feed       chan FeedItem
+	ImageGet   ImageGet
 }
 
 func NewStorage(c *client.Client) *Storage {
 	return &Storage{
 		mutex:      sync.Mutex{},
 		c:          c,
+		Feed:       make(chan FeedItem),
 		Containers: map[*Container]bool{},
-		Feed:       make(chan interface{}),
 	}
 }
 
-func (s *Storage) Init() error {
+func (s *Storage) Init(imgFunc ImageGet) error {
+	// make image retrieval availabe for containers
+	s.ImageGet = imgFunc
+
 	ctx := context.Background()
 	raws, err := s.c.ContainerList(
 		ctx,
@@ -67,7 +77,9 @@ func (s *Storage) Add(id string) (err error) {
 
 	// add unindexed container
 	s.mutex.Lock()
+
 	container := NewContainer(s.c, id, s.Feed)
+	container.ImageGet = s.ImageGet
 	err = container.Start()
 	if err != nil {
 		return
@@ -76,6 +88,7 @@ func (s *Storage) Add(id string) (err error) {
 	if container.State.Status == "running" {
 		s.Containers[container] = true
 		go container.RunFeed()
+		go container.Streams.Metrics.HandleLatest()
 	} else {
 		s.Containers[container] = false
 	}
@@ -130,10 +143,24 @@ func (s *Storage) Container(id string) (*Container, bool) {
 	return &Container{}, false
 }
 
-func (s *Storage) Items() (containers []*Container) {
+func (s *Storage) MarshalJSON() ([]byte, error) {
+	containers := make([]*Container, 0)
 	s.mutex.Lock()
-	for container := range s.Containers {
-		containers = append(containers, container)
+	for c := range s.Containers {
+		containers = append(containers, c)
+	}
+	s.mutex.Unlock()
+
+	return json.Marshal(containers)
+}
+
+func (s *Storage) CollectLatest() (colLatest []metrics.Set) {
+	s.mutex.Lock()
+	for container, active := range s.Containers {
+		if active {
+			latest := container.Streams.Metrics.Latest()
+			colLatest = append(colLatest, latest)
+		}
 	}
 	s.mutex.Unlock()
 	return
@@ -142,19 +169,17 @@ func (s *Storage) Items() (containers []*Container) {
 func (s *Storage) Broadcast() chan []interface{} {
 	out := make(chan []interface{})
 	go func() {
-		sendTick := time.NewTicker(5 * time.Second)
-		data := []interface{}{}
+		data := make([]interface{}, 0)
+		ticker := time.NewTicker(5 * time.Second)
 		for item := range s.Feed {
-			data = append(data, item)
-
 			select {
-			case <-sendTick.C:
-				if len(data) > 0 {
-					out <- data
-					data = nil
-				}
+			case <-ticker.C:
+				out <- data
+				data = nil
 			default:
 			}
+			mod := db.NewMetricsMod(item.Origin.ID, item.Body.When, item.Body)
+			data = append(data, mod)
 		}
 		close(out)
 	}()

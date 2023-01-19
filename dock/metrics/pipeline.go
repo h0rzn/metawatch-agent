@@ -16,7 +16,7 @@ type Pipeline struct {
 
 func NewPipeline(r io.ReadCloser) *Pipeline {
 	return &Pipeline{
-		R: r,
+		R:    r,
 		done: make(chan struct{}, 2),
 	}
 }
@@ -52,7 +52,7 @@ func (p *Pipeline) toSet(parsed chan types.StatsJSON) chan stream.Set {
 	go func() {
 		defer close(out)
 		for in := range parsed {
-			set := stream.NewSet("metrics_set", NewSetWithJSON(in))
+			set := stream.NewSet("metrics", NewSetWithJSON(in))
 			select {
 			case out <- *set:
 			case <-p.done:
