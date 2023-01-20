@@ -43,11 +43,13 @@ func (api *API) RegRoutes() error {
 		return err
 	}
 
-	corsConfig := cors.DefaultConfig()
-	corsConfig.AllowAllOrigins = true
-	corsConfig.AllowHeaders = []string{"Authorization", "content-type"}
-	corsConfig.AllowCredentials = true
-	api.Router.Use(cors.New(corsConfig))
+	// corsConfig := cors.DefaultConfig()
+
+	api.Router.Use(cors.New(cors.Config{
+		AllowAllOrigins:  true,
+		AllowHeaders:     []string{"Authorization", "content-type"},
+		AllowCredentials: true,
+	}))
 	api.Router.POST("/login", jwt.LoginHandler)
 	authed := api.Router.Group("/api")
 	authed.Use(jwt.MiddlewareFunc())
