@@ -21,7 +21,7 @@ Response
 #### [JWT] /api/refresh_token
 
 #### [JWT] /api/containers/:id
-#### [JWT] /api/containers/:id/metrics?from=X&to=Y
+#### [JWT] /api/containers/:id/metrics?from=X&to=Y?amount=N
 #### [JWT] /api/containers/all
 
 #### [JWT] /api/images/all
