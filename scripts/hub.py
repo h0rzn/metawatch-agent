@@ -9,8 +9,8 @@ from sys import exit
 from datetime import datetime
 
 until_usub = 5
-CID = "e63d12ed9e74cb2d5994e9e0356aad7588939108fb2a1e5ec729274e07e820bf"
-TYPE = "metrics"
+CID = "fdaaaa9dcace802715dbb865eb784bf6b8aa48de9d8a425ca11a472edc72d240"
+TYPE = "logs"
 
 sub = {
   "container_id": CID,
