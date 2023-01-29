@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"os"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -24,11 +25,19 @@ type API struct {
 	Hub        *hub.Hub
 }
 
-func NewAPI(addr string) (*API, error) {
+func NewAPI() (*API, error) {
 	ctrl, err := controller.NewController()
 	if err != nil {
 		return &API{}, err
 	}
+
+	addr := os.Getenv("ADDR")
+	if addr == "" {
+
+		addr = "localhost:8080"
+		logrus.Infoln("ADDR not specified: running on default localhost:8080")
+	}
+
 	return &API{
 		Router:     gin.Default(),
 		Addr:       addr,
