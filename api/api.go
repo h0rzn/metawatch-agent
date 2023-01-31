@@ -72,6 +72,11 @@ func (api *API) RegRoutes() error {
 	authed.GET("/about", api.About)
 	authed.GET("/volumes", api.Volumes)
 
+	authed.POST("/users", api.RegisterUser)
+	authed.POST("/users/:id", api.RemoveUser)
+	authed.GET("/users", api.GetUsers)
+	authed.PATCH("/users/:id", api.PatchUser)
+
 	api.Router.GET("/stream", api.Stream)
 
 	return nil
