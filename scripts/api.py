@@ -3,13 +3,20 @@ import json
 
 TOKEN = ""
 MONGO_CID = "e63d12ed9e74cb2d5994e9e0356aad7588939108fb2a1e5ec729274e07e820bf"
+PORT = "8081"
+
+def h(): 
+    return {
+        "Authorization": "Bearer " + TOKEN,
+        "Content-Type": "application/json"
+    }
 
 def login():
     p = {
         "username": "master",
         "password": "master"
     }
-    r = requests.post("http://localhost:8080/login", params=p)
+    r = requests.post("http://localhost:"+PORT+"/login", params=p)
     print(r.status_code)
     if r.ok:
         return True, r.json()["token"]
@@ -27,7 +34,7 @@ def metrics(amount):
         "to": "2023-01-10T18:05:00Z",
         "amount": amount
     }
-    r = requests.get("http://localhost:8080/api/containers/e63d12ed9e74cb2d5994e9e0356aad7588939108fb2a1e5ec729274e07e820bf/metrics", headers=h, params=p)
+    r = requests.get("http://localhost:"+PORT+"/api/containers/e63d12ed9e74cb2d5994e9e0356aad7588939108fb2a1e5ec729274e07e820bf/metrics", headers=h, params=p)
     print(json.dumps(r.json(), indent=4))
 
 def user_add(name):
@@ -35,12 +42,12 @@ def user_add(name):
         "name": "123456",
         "password": "123"
     }
-    r = requests.post("http://localhost:8080/users", json=d)
+    r = requests.post("http://localhost:"+PORT+"/api/users", json=d)
     print(r.status_code)
     print(r.text)
 
 def users_get():
-    r = requests.get("http://localhost:8080/users")
+    r = requests.get("http://localhost:"+PORT+"/api/users", headers=h())
     print(r.status_code)
     print(r.text)
 
@@ -50,17 +57,17 @@ def user_update(id):
         "name1": "newly patched name"
     }
 
-    r = requests.patch("http://localhost:8080/users/"+id, json=update)
+    r = requests.patch("http://localhost:"+PORT+"/api/users/"+id, json=update)
     print(r.status_code)
     print(r.text)
 
 if __name__ == "__main__":
-    # status, token = login()
-    # if status:
-    #     TOKEN = token
-    # else:
-    #     print("auth failed")
+    status, token = login()
+    if status:
+        TOKEN = token
+    else:
+        print("auth failed")
 
     #user_add("myname")
-    #users_get()
-    user_update("63d815c8468c1acb0dd64709")
+    users_get()
+    # user_update("63d815c8468c1acb0dd64709")
