@@ -3,7 +3,10 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"reflect"
+	"strings"
 	"time"
 
 	"github.com/h0rzn/monitoring_agent/dock/metrics"
@@ -68,13 +71,135 @@ func (db *DB) Init() error {
 // InitScheme initiates collections
 func (db *DB) InitScheme() error {
 	dbc := db.Client.Database("metawatch")
+
+	// metawatch.metrics
 	tso := options.TimeSeries().SetTimeField("when").SetMetaField("cid")
 	opts := options.CreateCollection().SetTimeSeriesOptions(tso)
-	dbc.CreateCollection(context.TODO(), "metrics", opts)
+	err := dbc.CreateCollection(context.TODO(), "metrics", opts)
 
-	//db.Metrics("e63d12ed9e74cb2d5994e9e0356aad7588939108fb2a1e5ec729274e07e820bf")
+	e := &mongo.CommandError{}
+	if errors.As(err, e) && e.Code == 48 {
+		logrus.Infoln("- DB - metawatch.metrics found")
+	} else if err == nil {
+		logrus.Infoln("- DB - metawatch.metrics created")
+	}
+
+	// metawatch.users
+	opts = &options.CreateCollectionOptions{}
+	err = dbc.CreateCollection(context.TODO(), "users", opts)
+
+	e = &mongo.CommandError{}
+	if errors.As(err, e) && e.Code == 48 {
+		logrus.Infoln("- DB - metawatch.users found")
+	} else if err == nil {
+		logrus.Infoln("- DB - metawatch.users created")
+	}
+
 	return nil
+}
 
+func (db *DB) InsertUser(u User) error {
+	u.HashPassword(u.Password)
+
+	col := db.Client.Database("metawatch").Collection("users")
+
+	filter := bson.D{{"name", u.Name}}
+	err := col.FindOne(context.TODO(), filter).Decode(&User{})
+	if err != mongo.ErrNoDocuments {
+		return errors.New("user exists already")
+	}
+
+	_, err = col.InsertOne(context.TODO(), u)
+	if err != nil {
+		logrus.Errorf("- DB - users insert err:", err)
+		return errors.New("failed to inser user: " + err.Error())
+	}
+
+	logrus.Debugln("- DB - inserted user")
+	return nil
+}
+
+func (db *DB) RemoveUser(id string) error {
+	col := db.Client.Database("metawatch").Collection("users")
+	res, err := col.DeleteOne(context.TODO(), bson.M{"_id": id})
+	if err != nil {
+		return err
+	}
+
+	if res.DeletedCount > 1 {
+		return errors.New("failed to delete nonexistent user")
+	}
+
+	return nil
+}
+
+// + param: update map
+func (db *DB) UpdateUser(update map[string]string, id string) (map[string]interface{}, error) {
+	// https://stackoverflow.com/questions/68167039/how-to-check-if-key-exists-in-mongodb
+
+	var user BasicUser
+	status := make(map[string]bool)
+	result := make(map[string]interface{})
+
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return nil, errors.New("id cant be parsed")
+	}
+
+	filter := bson.D{{"_id", objID}}
+	col := db.Client.Database("metawatch").Collection("users")
+	err = col.FindOne(context.TODO(), filter).Decode(&user)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return result, errors.New("could not find user")
+		}
+		return result, err
+	}
+	fmt.Printf("user found: %+v\n", user)
+
+	userFields := reflect.ValueOf(user)
+	for key, val := range update {
+
+		fmt.Println("handling", key, val)
+		field := userFields.FieldByName(strings.Title(strings.ToLower(key)))
+		if field == (reflect.Value{}) {
+			fmt.Printf("could not find %s\n", key)
+			status[key] = false
+		} else {
+			// update field
+			change := bson.D{{"$set", bson.D{{key, val}}}}
+			patch, err := col.UpdateOne(context.TODO(), filter, change)
+			if err == nil && patch.ModifiedCount == 1 {
+				fmt.Println("user modified", err, patch)
+				status[key] = true
+			} else {
+				status[key] = false
+			}
+		}
+	}
+
+	result["status"] = status
+
+	return result, nil
+}
+
+func (db *DB) GetUsers() (result []BasicUser, err error) {
+	col := db.Client.Database("metawatch").Collection("users")
+	cur, err := col.Find(context.TODO(), bson.D{})
+	if err != nil {
+		return
+	}
+
+	for cur.Next(context.TODO()) {
+		var u BasicUser
+		err := cur.Decode(&u)
+		if err != nil {
+			logrus.Errorf("- DB - failed to get users: %s", err)
+		} else {
+			result = append(result, u)
+		}
+	}
+	return
 }
 
 func (db *DB) Metrics(cid string, tmin primitive.DateTime, tmax primitive.DateTime) map[string][]metrics.Set {
