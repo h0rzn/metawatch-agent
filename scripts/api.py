@@ -30,15 +30,37 @@ def metrics(amount):
     r = requests.get("http://localhost:8080/api/containers/e63d12ed9e74cb2d5994e9e0356aad7588939108fb2a1e5ec729274e07e820bf/metrics", headers=h, params=p)
     print(json.dumps(r.json(), indent=4))
 
+def user_add(name):
+    d = {
+        "name": "123456",
+        "password": "123"
+    }
+    r = requests.post("http://localhost:8080/users", json=d)
+    print(r.status_code)
+    print(r.text)
 
+def users_get():
+    r = requests.get("http://localhost:8080/users")
+    print(r.status_code)
+    print(r.text)
+
+
+def user_update(id):
+    update = {
+        "name1": "newly patched name"
+    }
+
+    r = requests.patch("http://localhost:8080/users/"+id, json=update)
+    print(r.status_code)
+    print(r.text)
 
 if __name__ == "__main__":
-    status, token = login()
-    if status:
-        TOKEN = token
-    else:
-        print("auth failed")
+    # status, token = login()
+    # if status:
+    #     TOKEN = token
+    # else:
+    #     print("auth failed")
 
-    metrics(2)
-
-
+    #user_add("myname")
+    #users_get()
+    user_update("63d815c8468c1acb0dd64709")
