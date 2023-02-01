@@ -47,7 +47,7 @@ func NewAPI() (*API, error) {
 }
 
 func (api *API) RegRoutes() error {
-	jwt, err := JWT(api.Controller.DB.PasswordCorrect)
+	jwt, err := JWT(api.Controller.DB.PasswordCorrect, api.Controller.DB.UserExists)
 	if err != nil {
 		return err
 	}

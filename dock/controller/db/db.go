@@ -298,6 +298,20 @@ func (db *DB) PasswordCorrect(username, password string) bool {
 	return false
 }
 
+func (db *DB) UserExists(username string) bool {
+	users, err := db.GetUsers()
+	if err != nil {
+		return false
+	}
+
+	for _, user := range users {
+		if user.Name == username {
+			return true
+		}
+	}
+	return false
+}
+
 // https://astaxie.gitbooks.io/build-web-application-with-golang/content/en/09.5.html
 
 func hash(input string) ([]byte, error) {
