@@ -15,6 +15,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"golang.org/x/crypto/bcrypt"
 )
 
 const (
@@ -259,4 +260,37 @@ func (db *DB) InsertManyMetrics(data []interface{}) {
 		return
 	}
 	logrus.Infof("- DB - sucessful insert of %d metric entries\n", len(res.InsertedIDs))
+}
+
+func (db *DB) HashByUser(username string) (bool, []byte) {
+	var user User
+	col := db.Client.Database("metawatch").Collection("users")
+	filter := bson.D{{"name", username}}
+	err := col.FindOne(context.TODO(), filter).Decode(&user)
+	if err == mongo.ErrNoDocuments {
+		return false, []byte{}
+	}
+
+	return true, []byte(user.Password)
+}
+
+func (db *DB) PasswordCorrect(username, password string) bool {
+	if exists, hash := db.HashByUser(username); exists {
+		return compare(username, hash)
+	}
+	return false
+}
+
+// https://astaxie.gitbooks.io/build-web-application-with-golang/content/en/09.5.html
+
+func hash(input string) ([]byte, error) {
+	return bcrypt.GenerateFromPassword([]byte(input), bcrypt.DefaultCost)
+
+}
+
+func compare(input string, hash []byte) bool {
+	if err := bcrypt.CompareHashAndPassword(hash, []byte(input)); err != nil {
+		return false
+	}
+	return true
 }
