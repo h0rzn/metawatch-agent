@@ -176,6 +176,11 @@ func (db *DB) UpdateUser(update map[string]string, id string) (map[string]interf
 			status[key] = false
 		} else {
 
+			if val == "" {
+				status[key] = false
+				continue
+			}
+
 			if key == "password" {
 				user.Password = val
 				user.HashPassword()
