@@ -123,12 +123,19 @@ func (db *DB) InsertUser(u User) error {
 
 func (db *DB) RemoveUser(id string) error {
 	col := db.Client.Database("metawatch").Collection("users")
-	res, err := col.DeleteOne(context.TODO(), bson.M{"_id": id})
+
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return errors.New("id cant be parsed")
+	}
+
+	res, err := col.DeleteOne(context.TODO(), bson.D{{"_id", objID}})
 	if err != nil {
 		return err
 	}
+	fmt.Printf("%+v\n", res)
 
-	if res.DeletedCount > 1 {
+	if res.DeletedCount != 1 {
 		return errors.New("failed to delete nonexistent user")
 	}
 
