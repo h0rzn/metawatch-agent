@@ -99,7 +99,8 @@ func (db *DB) InitScheme() error {
 }
 
 func (db *DB) InsertUser(u User) error {
-	u.HashPassword(u.Password)
+	u.HashPassword()
+	u.SetCreated()
 
 	col := db.Client.Database("metawatch").Collection("users")
 
@@ -137,7 +138,7 @@ func (db *DB) RemoveUser(id string) error {
 func (db *DB) UpdateUser(update map[string]string, id string) (map[string]interface{}, error) {
 	// https://stackoverflow.com/questions/68167039/how-to-check-if-key-exists-in-mongodb
 
-	var user BasicUser
+	var user User
 	status := make(map[string]bool)
 	result := make(map[string]interface{})
 
@@ -183,7 +184,7 @@ func (db *DB) UpdateUser(update map[string]string, id string) (map[string]interf
 	return result, nil
 }
 
-func (db *DB) GetUsers() (result []BasicUser, err error) {
+func (db *DB) GetUsers() (result []User, err error) {
 	col := db.Client.Database("metawatch").Collection("users")
 	cur, err := col.Find(context.TODO(), bson.D{})
 	if err != nil {
@@ -191,11 +192,12 @@ func (db *DB) GetUsers() (result []BasicUser, err error) {
 	}
 
 	for cur.Next(context.TODO()) {
-		var u BasicUser
+		var u User
 		err := cur.Decode(&u)
 		if err != nil {
 			logrus.Errorf("- DB - failed to get users: %s", err)
 		} else {
+			u.RemovePassword()
 			result = append(result, u)
 		}
 	}

@@ -10,9 +10,6 @@ import (
 	"github.com/h0rzn/monitoring_agent/dock/controller/db"
 )
 
-type UserPatch struct {
-}
-
 func (api *API) GetUsers(ctx *gin.Context) {
 	users, err := api.Controller.DB.GetUsers()
 	if err != nil {
@@ -27,6 +24,7 @@ func (api *API) RegisterUser(ctx *gin.Context) {
 	var user db.User
 	err := ctx.ShouldBindJSON(&user)
 	if err != nil {
+		fmt.Println(err)
 		ctx.AbortWithStatusJSON(http.StatusBadRequest, map[string]string{"error": "malformed input"})
 		return
 	}
