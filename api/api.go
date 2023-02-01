@@ -73,7 +73,7 @@ func (api *API) RegRoutes() error {
 	authed.GET("/volumes", api.Volumes)
 
 	authed.POST("/users", api.RegisterUser)
-	authed.POST("/users/:id", api.RemoveUser)
+	authed.DELETE("/users/:id", api.RemoveUser)
 	authed.GET("/users", api.GetUsers)
 	authed.PATCH("/users/:id", api.PatchUser)
 
