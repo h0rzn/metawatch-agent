@@ -175,7 +175,12 @@ func (db *DB) UpdateUser(update map[string]string, id string) (map[string]interf
 			fmt.Printf("could not find %s\n", key)
 			status[key] = false
 		} else {
-			// update field
+
+			if key == "password" {
+				user.Password = val
+				user.HashPassword()
+			}
+
 			change := bson.D{{"$set", bson.D{{key, val}}}}
 			patch, err := col.UpdateOne(context.TODO(), filter, change)
 			if err == nil && patch.ModifiedCount == 1 {
