@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"os"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -24,11 +25,19 @@ type API struct {
 	Hub        *hub.Hub
 }
 
-func NewAPI(addr string) (*API, error) {
+func NewAPI() (*API, error) {
 	ctrl, err := controller.NewController()
 	if err != nil {
 		return &API{}, err
 	}
+
+	addr := os.Getenv("ADDR")
+	if addr == "" {
+
+		addr = "localhost:8080"
+		logrus.Infoln("ADDR not specified: running on default localhost:8080")
+	}
+
 	return &API{
 		Router:     gin.Default(),
 		Addr:       addr,
@@ -38,12 +47,18 @@ func NewAPI(addr string) (*API, error) {
 }
 
 func (api *API) RegRoutes() error {
-	jwt, err := JWT()
+	jwt, err := JWT(api.Controller.DB.PasswordCorrect, api.Controller.DB.UserExists)
 	if err != nil {
 		return err
 	}
 
-	api.Router.Use(cors.Default())
+	api.Router.Use(cors.New(cors.Config{
+		AllowAllOrigins:  true,
+		AllowHeaders:     []string{"Authorization", "content-type"},
+		AllowMethods:     []string{"PUT", "PATCH", "DELETE", "GET", "POST"},
+		AllowCredentials: true,
+	}))
+
 	api.Router.POST("/login", jwt.LoginHandler)
 	authed := api.Router.Group("/api")
 	authed.Use(jwt.MiddlewareFunc())
@@ -56,6 +71,11 @@ func (api *API) RegRoutes() error {
 	authed.GET("/images/:id", api.Image)
 	authed.GET("/about", api.About)
 	authed.GET("/volumes", api.Volumes)
+
+	authed.POST("/users", api.RegisterUser)
+	authed.DELETE("/users/:id", api.RemoveUser)
+	authed.GET("/users", api.GetUsers)
+	authed.PATCH("/users/:id", api.PatchUser)
 
 	api.Router.GET("/stream", api.Stream)
 

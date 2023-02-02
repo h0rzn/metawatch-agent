@@ -3,9 +3,11 @@ package api
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/h0rzn/monitoring_agent/dock/metrics"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -49,12 +51,28 @@ func (api *API) Metrics(ctx *gin.Context) {
 		return
 	}
 
+	amount := 10
+	if amountParam := query.Get("amount"); amountParam != "" {
+		if n, err := strconv.Atoi(amountParam); err == nil {
+			amount = n
+		}
+	}
+
 	tminP := primitive.NewDateTimeFromTime(tmin)
 	tmaxP := primitive.NewDateTimeFromTime(tmax)
 
-	result := api.Controller.DB.Metrics(id, tminP, tmaxP)
-	
-	ctx.JSON(http.StatusOK, result[id])
+	dbResult := api.Controller.DB.Metrics(id, tminP, tmaxP)
+	var result []metrics.Set
+
+	// delim := resultCount % amount
+	chunkSize := len(dbResult[id]) / amount
+
+	chunks := metrics.Chunk(dbResult[id], chunkSize)
+	for _, chunk := range chunks {
+		result = append(result, metrics.Average(chunk))
+	}
+
+	ctx.JSON(http.StatusOK, result)
 }
 
 // /stream endpoint for accessing the websocket that supplies

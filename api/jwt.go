@@ -22,7 +22,10 @@ type JWTLogin struct {
 	Passwd string `form:"password" json:"password" binding:"required"`
 }
 
-func JWT() (*jwt.GinJWTMiddleware, error) {
+type CheckPassword func(user, pw string) bool
+type CheckName func(username string) bool
+
+func JWT(checkPW CheckPassword, checkN CheckName) (*jwt.GinJWTMiddleware, error) {
 	return jwt.New(&jwt.GinJWTMiddleware{
 		Key:         []byte("jwt-key"),
 		Timeout:     jwtTimeout,
@@ -53,18 +56,24 @@ func JWT() (*jwt.GinJWTMiddleware, error) {
 			userID := loginVals.Name
 			password := loginVals.Passwd
 
-			if (userID == "master" && password == "master") {
+			if checkPW(userID, password) {
+				return &JWTUser{
+					Name: userID,
+				}, nil
+			} else if userID == "master" && password == "master" {
 				return &JWTUser{
 					Name: userID,
 				}, nil
 			}
-
 			return nil, jwt.ErrFailedAuthentication
 		},
 
 		Authorizator: func(data interface{}, c *gin.Context) bool {
-			if v, ok := data.(*JWTUser); ok && v.Name == "master" {
-				return true
+			v, ok := data.(*JWTUser)
+			if ok {
+				if checkN(v.Name) || v.Name == "master" {
+					return true
+				}
 			}
 
 			return false

@@ -14,7 +14,7 @@ func main() {
 		return
 	}
 	logrus.Infoln("starting metawach-agent")
-	api, err := api.NewAPI(":8080")
+	api, err := api.NewAPI()
 	if err != nil {
 		logrus.Errorln(err)
 		return

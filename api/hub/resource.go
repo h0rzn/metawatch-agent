@@ -45,8 +45,8 @@ func (r *GenericR) CID() string {
 	return r.Container.ID
 }
 
-func (e *GenericR) Type() string {
-	return e.Typ
+func (r *GenericR) Type() string {
+	return r.Typ
 }
 
 func (r *GenericR) Run() error {
@@ -107,7 +107,7 @@ func (r *GenericR) Rm(c *Client) {
 func (r *GenericR) Broadcast(set stream.Set) {
 	frame := &Response{
 		CID:     r.Container.ID,
-		Type:    set.Type,
+		Type:    r.Type(),
 		Message: set.Data,
 	}
 	r.mutex.Lock()
