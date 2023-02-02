@@ -99,7 +99,23 @@ func (db *DB) InitScheme() error {
 	return nil
 }
 
-func (db *DB) InsertUser(u User) error {
+func (db *DB) User(id primitive.ObjectID) (User, error) {
+	var user User
+	col := db.Client.Database("metawatch").Collection("users")
+
+	filter := bson.D{{"_id", id}}
+	err := col.FindOne(context.TODO(), filter).Decode(&user)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return user, errors.New("could not find user")
+		}
+		return user, err
+	}
+
+	return user, nil
+}
+
+func (db *DB) InsertUser(u User) (User, error) {
 	u.HashPassword()
 	u.SetCreated()
 
@@ -108,17 +124,29 @@ func (db *DB) InsertUser(u User) error {
 	filter := bson.D{{"name", u.Name}}
 	err := col.FindOne(context.TODO(), filter).Decode(&User{})
 	if err != mongo.ErrNoDocuments {
-		return errors.New("user exists already")
+		return User{}, errors.New("user exists already")
 	}
 
-	_, err = col.InsertOne(context.TODO(), u)
+	result, err := col.InsertOne(context.TODO(), u)
 	if err != nil {
 		logrus.Errorf("- DB - users insert err:", err)
-		return errors.New("failed to inser user: " + err.Error())
+		return User{}, errors.New("failed to inser user: " + err.Error())
 	}
 
 	logrus.Debugln("- DB - inserted user")
-	return nil
+
+	id, ok := result.InsertedID.(primitive.ObjectID)
+	if !ok {
+		return User{}, errors.New("error retrieving inserted user")
+	}
+
+	user, err := db.User(id)
+	if err != nil {
+		return user, err
+	}
+
+	user.RemovePassword()
+	return user, nil
 }
 
 func (db *DB) RemoveUser(id string) error {
@@ -144,15 +172,13 @@ func (db *DB) RemoveUser(id string) error {
 
 // + param: update map
 func (db *DB) UpdateUser(update map[string]string, id string) (map[string]interface{}, error) {
-	// https://stackoverflow.com/questions/68167039/how-to-check-if-key-exists-in-mongodb
-
 	var user User
 	status := make(map[string]bool)
 	result := make(map[string]interface{})
 
 	objID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
-		return nil, errors.New("id cant be parsed")
+		return nil, errors.New("cant parse id")
 	}
 
 	filter := bson.D{{"_id", objID}}
@@ -168,26 +194,31 @@ func (db *DB) UpdateUser(update map[string]string, id string) (map[string]interf
 
 	userFields := reflect.ValueOf(user)
 	for key, val := range update {
-
 		fmt.Println("handling", key, val)
 		field := userFields.FieldByName(strings.Title(strings.ToLower(key)))
 		if field == (reflect.Value{}) {
-			fmt.Printf("could not find %s\n", key)
+			fmt.Printf("unkown field %s\n", key)
 			status[key] = false
 		} else {
 			var change bson.D
-
 			if val == "" {
 				status[key] = false
 				continue
 			}
 
-			if key == "password" {
-				user.Password = val
-				user.HashPassword()
+			// protect fields
+			switch key {
+			case "password":
+				user.UpdatePassword(val)
 				change = bson.D{{"$set", bson.D{{key, user.Password}}}}
-			} else {
+			case "name":
 				change = bson.D{{"$set", bson.D{{key, val}}}}
+			case "created":
+				status[key] = false
+				continue
+			default:
+				status[key] = false
+				continue
 			}
 
 			patch, err := col.UpdateOne(context.TODO(), filter, change)
@@ -200,6 +231,13 @@ func (db *DB) UpdateUser(update map[string]string, id string) (map[string]interf
 		}
 	}
 
+	updated, err := db.User(objID)
+	if err != nil {
+		return result, err
+	}
+	updated.RemovePassword()
+
+	result["user"] = updated
 	result["status"] = status
 
 	return result, nil

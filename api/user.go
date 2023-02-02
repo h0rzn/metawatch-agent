@@ -28,13 +28,13 @@ func (api *API) RegisterUser(ctx *gin.Context) {
 		ctx.AbortWithStatusJSON(http.StatusBadRequest, map[string]string{"error": "malformed input"})
 		return
 	}
-	err = api.Controller.DB.InsertUser(user)
+	user, err = api.Controller.DB.InsertUser(user)
 	if err != nil {
 		ctx.AbortWithStatusJSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
-	ctx.JSON(http.StatusAccepted, struct{}{})
+	ctx.JSON(http.StatusAccepted, user)
 
 }
 

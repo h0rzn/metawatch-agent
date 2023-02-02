@@ -23,6 +23,11 @@ func (u *User) HashPassword() error {
 	return nil
 }
 
+func (u *User) UpdatePassword(pw string) error {
+	u.Password = pw
+	return u.HashPassword()
+}
+
 func (u *User) SetCreated() {
 	u.Created = time.Now()
 }
