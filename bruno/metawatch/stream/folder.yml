@@ -1,0 +1,7 @@
+info:
+  name: stream
+  type: folder
+  seq: 5
+
+request:
+  auth: inherit

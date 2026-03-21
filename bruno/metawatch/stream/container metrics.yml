@@ -1,0 +1,20 @@
+info:
+  name: container metrics
+  type: websocket
+  seq: 5
+
+websocket:
+  url: "{{baseUrl}}/stream"
+  message:
+    type: json
+    data: |-
+      {
+        "container_id": "28f6d65e512dd79d5badf01af88cb75966f7e65fa679c5f80220776fb41949a8",
+        "event": "subscribe",
+        "type": "metrics"
+      }
+  auth: inherit
+
+settings:
+  timeout: 0
+  keepAliveInterval: 0

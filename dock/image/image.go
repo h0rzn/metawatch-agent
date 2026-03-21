@@ -17,10 +17,14 @@ type Image struct {
 func NewImage(raw types.ImageSummary) *Image {
 	unix := time.Unix(raw.Created, 0)
 	stamp := unix.Format(time.RFC3339Nano)
+	tag := "<no_tag>"
+	if len(raw.RepoTags) > 0 {
+		tag = raw.RepoTags[0]
+	}
 
 	return &Image{
 		ID:         raw.ID,
-		Tag:        raw.RepoTags[0],
+		Tag:        tag,
 		Size:       raw.Size,
 		Created:    stamp,
 		Containers: raw.Containers,

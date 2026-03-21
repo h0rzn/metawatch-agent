@@ -1,0 +1,20 @@
+info:
+  name: container metrics combined
+  type: websocket
+  seq: 2
+
+websocket:
+  url: "{{baseUrl}}/stream"
+  message:
+    type: json
+    data: |-
+      {
+        "container_id": "_all", 
+        "event": "subscribe",
+        "type": "combined_metrics"
+      }
+  auth: inherit
+
+settings:
+  timeout: 0
+  keepAliveInterval: 0
